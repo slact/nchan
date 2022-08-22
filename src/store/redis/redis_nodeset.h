@@ -29,7 +29,7 @@
 //#define REDIS_NODESET_DBG 1
 
 #define node_log(node, lvl, fmt, args...) \
-  ngx_log_error(lvl, ngx_cycle->log, 0, "nchan: Redis node %s " fmt, node_nickname_cstr(node), ##args)
+  ngx_log_error(lvl, ngx_cycle->log, 0, "nchan: Redis %snode %s " fmt, (node->role == REDIS_NODE_ROLE_MASTER ? "master " : (node->role == REDIS_NODE_ROLE_SLAVE ? "slave " : "")), node_nickname_cstr(node), ##args)
 #define node_log_error(node, fmt, args...)    node_log((node), NGX_LOG_ERR, fmt, ##args)
 #define node_log_warning(node, fmt, args...)  node_log((node), NGX_LOG_WARN, fmt, ##args)
 #define node_log_notice(node, fmt, args...)   node_log((node), NGX_LOG_NOTICE, fmt, ##args)
