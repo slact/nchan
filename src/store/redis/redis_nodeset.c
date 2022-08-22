@@ -1181,6 +1181,8 @@ static int nodeset_recover_cluster(redis_nodeset_t *ns) {
   ns->cluster.recovering_on_node = node;
   nodeset_log_notice(ns, "Recovering cluster though node %s", node_nickname_cstr(node));
   
+  node_command_sent(node);
+  
   redisAsyncCommand(node->ctx.cmd, NULL, NULL, "MULTI");
   redisAsyncCommand(node->ctx.cmd, NULL, NULL, "CLUSTER INFO");
   redisAsyncCommand(node->ctx.cmd, NULL, NULL, "CLUSTER NODES");
@@ -1196,6 +1198,8 @@ static void nodeset_recover_cluster_handler(redisAsyncContext *ac, void *rep, vo
   redis_nodeset_t            *ns = node->nodeset;
   int                         current_epoch;
   u_char                      errbuf[1024];
+  
+  node_command_received(node);
   
   ngx_snprintf(errbuf, 1024, "unknown reason%Z");
   
