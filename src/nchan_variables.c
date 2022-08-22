@@ -289,6 +289,7 @@ nchan_variable_t nchan_vars[] = {
   STUB_STATUS_GLOBAL_VARIABLE(total_ipc_alerts_received),
   STUB_STATUS_GLOBAL_VARIABLE(total_ipc_send_delay),
   STUB_STATUS_GLOBAL_VARIABLE(total_ipc_receive_delay),
+  STUB_STATUS_GLOBAL_VARIABLE(total_redis_commands_sent),
   { ngx_string("nchan_stub_status_shared_memory_used"),  nchan_stub_status_shared_memory_used, 0},
   { ngx_string("nchan_stub_status_ipc_alerts_in_transit"),  nchan_stub_status_ipc_alerts_in_transit, 0},
   { ngx_string("nchan_version"), nchan_version_variable, 0},

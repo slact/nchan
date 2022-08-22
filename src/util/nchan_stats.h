@@ -28,6 +28,7 @@ typedef struct {
   ngx_atomic_uint_t      total_ipc_alerts_received;
   ngx_atomic_uint_t      total_ipc_send_delay;
   ngx_atomic_uint_t      total_ipc_receive_delay;
+  ngx_atomic_uint_t      total_redis_commands_sent;
 } nchan_stats_global_t;
 
 typedef struct {

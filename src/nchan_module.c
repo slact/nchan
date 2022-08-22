@@ -253,6 +253,7 @@ ngx_int_t nchan_stub_status_handler(ngx_http_request_t *r) {
                       "redis pending commands: %ui\n"
                       "redis connected servers: %ui\n"
                       "redis unhealthy upstreams: %ui\n"
+                      "total redis commands sent: %ui\n"
                       "total interprocess alerts received: %ui\n"
                       "interprocess alerts in transit: %ui\n"
                       "interprocess queued alerts: %ui\n"
@@ -276,7 +277,7 @@ ngx_int_t nchan_stub_status_handler(ngx_http_request_t *r) {
   b->start = (u_char *)&b[1];
   b->pos = b->start;
   
-  b->end = ngx_snprintf(b->start, 800, buf_fmt, global.total_published_messages, worker.messages, shmem_used, shmem_max, worker.channels, worker.subscribers, worker.redis_pending_commands, worker.redis_connected_servers, worker.redis_unhealthy_upstreams, global.total_ipc_alerts_received, global.total_ipc_alerts_sent - global.total_ipc_alerts_received, worker.ipc_queue_size, global.total_ipc_send_delay, global.total_ipc_receive_delay, NCHAN_VERSION);
+  b->end = ngx_snprintf(b->start, 800, buf_fmt, global.total_published_messages, worker.messages, shmem_used, shmem_max, worker.channels, worker.subscribers, worker.redis_pending_commands, worker.redis_connected_servers, worker.redis_unhealthy_upstreams, global.total_redis_commands_sent, global.total_ipc_alerts_received, global.total_ipc_alerts_sent - global.total_ipc_alerts_received, worker.ipc_queue_size, global.total_ipc_send_delay, global.total_ipc_receive_delay, NCHAN_VERSION);
   b->last = b->end;
 
   b->memory = 1;

@@ -3617,6 +3617,7 @@ void node_command_sent(redis_node_t *node) {
     node->pending_commands++;
   }
   nchan_stats_worker_incr(redis_pending_commands, 1); 
+  nchan_stats_global_incr(total_redis_commands_sent, 1); 
 }
 void node_command_received(redis_node_t *node) {
   if(node) {
