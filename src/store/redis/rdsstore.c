@@ -1054,16 +1054,14 @@ static ngx_int_t start_chanhead_spooler(rdstore_channel_head_t *head) {
   return NGX_OK;
 }
 
-static void redis_update_channel_keepalive_timer(rdstore_channel_head_t *ch, int keepalive_from_redis_sec) {
-  ngx_msec_t new_interval = keepalive_from_redis_sec * 1000;
-  
-  if(keepalive_from_redis_sec < 0) {
+static void redis_update_channel_keepalive_timer(rdstore_channel_head_t *ch, int keepalive_from_redis_msec) {
+  ngx_msec_t new_interval = keepalive_from_redis_msec;
+  if(keepalive_from_redis_msec < 0) {
     //timer doesn't need to be set
     return;
   }
-    
-  // use the TTL provided. it might be the one we gave it rounded to the second,
-  // or it might be longer
+  
+  // use the TTL provided. it might be the one we gave it, or it might be longer
   ch->keepalive_interval = new_interval;
     
   if(ch->keepalive_timer.timer_set) {
@@ -1088,8 +1086,8 @@ static ngx_int_t redis_subscriber_register_send(redis_nodeset_t *nodeset, void *
     
     nchan_redis_script(subscriber_register, node, &redis_subscriber_register_cb, d, &d->chanhead->id,
                        "- %i %i %i 1",
-                       d->chanhead->keepalive_interval / 1000,
-                       nodeset->settings.idle_channel_ttl_safety_margin/1000,
+                       d->chanhead->keepalive_interval,
+                       nodeset->settings.idle_channel_ttl_safety_margin,
                        ngx_time()
                       );
   }
@@ -1280,7 +1278,7 @@ static ngx_int_t redisChannelKeepaliveCallback_send(redis_nodeset_t *ns, void *p
     
     nchan_set_next_backoff(&head->keepalive_interval, &ns->settings.idle_channel_ttl);
     
-    nchan_redis_script(channel_keepalive, node, &redisChannelKeepaliveCallback, head, &head->id, "%i %i", head->keepalive_interval/1000, ns->settings.idle_channel_ttl_safety_margin/1000);
+    nchan_redis_script(channel_keepalive, node, &redisChannelKeepaliveCallback, head, &head->id, "%i %i", head->keepalive_interval, ns->settings.idle_channel_ttl_safety_margin);
   }
   return NGX_OK;
 }

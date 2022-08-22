@@ -1,5 +1,5 @@
---input:  keys: [], values: [namespace, channel_id, ttl, ttl_safety_margin_sec]
--- ttl is for when there are no messages but at least 1 subscriber.
+--input:  keys: [], values: [namespace, channel_id, ttl_msec, ttl_safety_margin_msec]
+-- ttl_msec is for when there are no messages but at least 1 subscriber.
 --output: seconds until next keepalive is expected, or -1 for "let it disappear"
 redis.call('ECHO', ' ####### CHANNEL KEEPALIVE ####### ')
 local ns=ARGV[1]
@@ -23,7 +23,7 @@ local key= {
 
 local subs_count = tonumber(redis.call('HGET', key.channel, "subscribers")) or 0
 local msgs_count = tonumber(redis.call('LLEN', key.messages)) or 0
-local actual_ttl = tonumber(redis.call('TTL',  key.channel))
+local actual_ttl = tonumber(redis.call('PTTL',  key.channel))
 
 
 if subs_count <= 0 then
@@ -32,15 +32,14 @@ end
 
 if msgs_count > 0 and actual_ttl > safe_ttl then
   local return_ttl =  actual_ttl - ttl_safety_margin > 0 and actual_ttl - ttl_safety_margin or math.ceil(actual_ttl / 2)
-  redis.call('echo', "KEEPALIVE ttl (with messages): " .. tostring(return_ttl) .. " actual: " .. actual_ttl)
   return return_ttl
 end
 
 --refresh ttl
-redis.call('expire', key.channel, safe_ttl);
-redis.call('expire', key.messages, safe_ttl);
-redis.call('expire', key.subscribers, safe_ttl);
-redis.call('expire', key.subscriber_counts, safe_ttl);
+redis.call('PEXPIRE', key.channel, safe_ttl);
+redis.call('PEXPIRE', key.messages, safe_ttl);
+redis.call('PEXPIRE', key.subscribers, safe_ttl);
+redis.call('PEXPIRE', key.subscriber_counts, safe_ttl);
 
 return ttl
 
