@@ -993,6 +993,8 @@ static void nodeset_cluster_check_event_callback(redisAsyncContext *ac, void *re
     return;
   }
   
+  node_command_received(node);
+  
   if(reply->type == REDIS_REPLY_ERROR) {
     err = reply->str ? reply->str : "error in reply";
     goto error;
@@ -1121,6 +1123,8 @@ static void nodeset_cluster_check_event(ngx_event_t *ev) {
     nodeset_start_cluster_check_timer(ns);
     return;
   }
+  
+  node_command_sent(node);
   
   nodeset_log_debug(ns, "cluster_check event on node %s", node_nickname_cstr(node));
   redisAsyncCommand(node->ctx.cmd, NULL, NULL, "MULTI");
