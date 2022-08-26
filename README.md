@@ -1356,7 +1356,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   arguments: 1  
   default: `off`  
   context: upstream  
-  > When disabled, use fast but potentially inaccurate subscriber counts. These may become inaccurate if Nginx workers exit uncleanly or are terminated. When disabled, use a slightly slower but completely accurate subscriber count. Defaults to 'off' for legacy reasons, but will be enabled by default in the future.    
+  > When disabled, use fast but potentially inaccurate subscriber counts. These may become inaccurate if Nginx workers exit uncleanly or are terminated. When enabled, use a slightly slower but completely accurate subscriber count. Defaults to 'off' for legacy reasons, but will be enabled by default in the future.    
 
 - **nchan_redis_cluster_check_interval_backoff** `<floating point> >= 0, ratio of current delay`  
   arguments: 1  

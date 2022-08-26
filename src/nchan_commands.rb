@@ -606,7 +606,7 @@ CfCmd.new do
       default: "off",
       group: "storage",
       tags: ['redis'],
-      info: "When disabled, use fast but potentially inaccurate subscriber counts. These may become inaccurate if Nginx workers exit uncleanly or are terminated. When disabled, use a slightly slower but completely accurate subscriber count. Defaults to 'off' for legacy reasons, but will be enabled by default in the future."
+      info: "When disabled, use fast but potentially inaccurate subscriber counts. These may become inaccurate if Nginx workers exit uncleanly or are terminated. When enabled, use a slightly slower but completely accurate subscriber count. Defaults to 'off' for legacy reasons, but will be enabled by default in the future."
   
   nchan_redis_wait_after_connecting [:main, :srv, :loc],
       :nchan_ignore_obsolete_setting,
