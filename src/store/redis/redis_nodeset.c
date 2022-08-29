@@ -1766,6 +1766,11 @@ int node_disconnect(redis_node_t *node, int disconnected_state) {
   if(node->timeout.ev.timer_set) {
     ngx_del_timer(&node->timeout.ev);
   }
+  node->timeout.sent = 0;
+  node->timeout.received = 0;
+  node->timeout.prev_sent = 0;
+  
+  node->pending_commands = 0;
   
   node->scripts_load_state.loading = 0;
   node->scripts_load_state.current = 0;
@@ -1799,6 +1804,7 @@ int node_disconnect(redis_node_t *node, int disconnected_state) {
       cur->status = NOTREADY;
     }
   }
+  
   return 1;
 }
 
