@@ -1,7 +1,7 @@
 --input:  keys: [], values: [namespace, channel_id, number, time, nginx_worker_id]
 --output: -none-
   
-redis.call('echo', ' ####### FAKESUBS ####### ')
+redis.call('echo', ' ####### ADD_FAKESUBS ####### ')
 local ns = ARGV[1]
 local id = ARGV[2]
 local num = tonumber(ARGV[3])
@@ -39,14 +39,14 @@ if type(res) == "table" and res["err"] then
   return {err = ("CLUSTER KEYSLOT ERROR. %i %s"):format(num, id)}
 end
 redis.call('HINCRBY', subs_key, ngx_worker_id, num)
-local subs_key_ttl = tonumber(redis.call('TTL',  subs_key))
-if subs_key_ttl < 0 then
-  subs_key_ttl = redis.call('TTL', chan_key)
-  if subs_key_ttl <= 0 then
+local subs_key_pttl = tonumber(redis.call('PTTL',  subs_key))
+if subs_key_pttl < 0 then
+  subs_key_pttl = redis.call('PTTL', chan_key)
+  if subs_key_pttl <= 0 then
     --60 seconds to get your shit together
-    subs_key_ttl = 60
+    subs_key_pttl = 60
   end
-  redis.call('EXPIRE', subs_key, subs_key_ttl)
+  redis.call('PEXPIRE', subs_key, subs_key_pttl)
 end
 
 return nil
