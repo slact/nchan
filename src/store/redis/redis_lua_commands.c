@@ -832,34 +832,6 @@ redis_lua_scripts_t redis_lua_scripts = {
    "\n"
    "return {ch, new_channel}\n"},
 
-  {"publish_status", "868da11fde87043c24d82285d0b31adbbdcef406",
-   "--input:  keys: [], values: [namespace, channel_id, status_code, publish_command]\n"
-   "--output: current_subscribers\n"
-   "\n"
-   "redis.call('echo', ' ####### PUBLISH STATUS ####### ')\n"
-   "--local dbg = function(...) redis.call('echo', table.concat({...})); end\n"
-   "local ns, id=ARGV[1], ARGV[2]\n"
-   "local code=tonumber(ARGV[3])\n"
-   "if code==nil then\n"
-   "  return {err=\"non-numeric status code given, bailing!\"}\n"
-   "end\n"
-   "\n"
-   "local pubmsg = \"status:\"..code\n"
-   "local ch = ('%s{channel:%s}'):format(ns, id)\n"
-   "local subs_key = ch..':subscribers'\n"
-   "local chan_key = ch\n"
-   "--local channel_pubsub = ch..':pubsub'\n"
-   "\n"
-   "for k,channel_key in pairs(redis.call('SMEMBERS', subs_key)) do\n"
-   "  --not efficient, but useful for a few short-term subscriptions\n"
-   "  redis.call(publish_command, channel_key, pubmsg)\n"
-   "end\n"
-   "--clear short-term subscriber list\n"
-   "redis.call('DEL', subs_key)\n"
-   "--now publish to the efficient channel\n"
-   "--what?... redis.call('PUBLISH', channel_pubsub, pubmsg)\n"
-   "return redis.call('HGET', chan_key, 'subscribers') or 0\n"},
-
   {"request_subscriber_info", "93c500e094dfc5364251854eeac8d4331a0223c0",
    "--input: keys: [],  values: [ namespace, channel_id, info_response_id ]\n"
    "--output: -nothing-\n"
