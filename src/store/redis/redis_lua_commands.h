@@ -61,7 +61,7 @@ typedef struct {
 
   //input: keys: [], values: [namespace, channel_id, subscriber_id, active_ttl_msec, ttl_safety_margin_msec, time, want_channel_settings]
   //  'subscriber_id' can be '-' for new id, or an existing id
-  //  'active_ttl_msec' is channel ttl with non-zero subscribers. -1 to persist, >0 ttl in sec
+  //  'active_ttl_msec' is channel ttl with non-zero subscribers. -1 to persist, >0 ttl in msec
   //  'ttl_safety_margin_msec' is number of seconds before TTL that Nchan issues a keepalive recheck
   //output: subscriber_id, num_current_subscribers, next_keepalive_time, channel_buffer_length
   //  'channel_buffer_length' is returned only if want_channel_settings is 1

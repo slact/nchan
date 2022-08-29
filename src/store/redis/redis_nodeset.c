@@ -539,7 +539,7 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
     ns->settings.idle_channel_ttl = NCHAN_CONF_UNSEC_BACKOFF;
     nchan_conf_merge_backoff_value(&ns->settings.idle_channel_ttl, &scf->redis.idle_channel_ttl, &NCHAN_REDIS_DEFAULT_IDLE_CHANNEL_TTL);
   
-    ns->settings.idle_channel_ttl_safety_margin = scf->redis.idle_channel_ttl_safety_margin == NGX_CONF_UNSET_MSEC ? NCHAN_REDIS_IDLE_CHANNEL_TTL_SAFETY_MARGIN : scf->redis.idle_channel_ttl_safety_margin;
+    ns->settings.idle_channel_ttl_safety_margin = scf->redis.idle_channel_ttl_safety_margin == NGX_CONF_UNSET_MSEC ? NCHAN_REDIS_IDLE_CHANNEL_TTL_SAFETY_MARGIN_MSEC : scf->redis.idle_channel_ttl_safety_margin;
     
     ns->settings.node_weight.master = scf->redis.master_weight == NGX_CONF_UNSET ? 1 : scf->redis.master_weight;
     ns->settings.node_weight.slave = scf->redis.slave_weight == NGX_CONF_UNSET ? 1 : scf->redis.slave_weight;

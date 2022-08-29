@@ -1,11 +1,11 @@
 #include "redis_lua_commands.h"
 
 redis_lua_scripts_t redis_lua_scripts = {
-  {"add_fakesub", "34fbc20c75d26c7d86121667599645cd915b64b7",
+  {"add_fakesub", "f3b5cc02b9902e94db37949cf0eba6b3fb30376f",
    "--input:  keys: [], values: [namespace, channel_id, number, time, nginx_worker_id]\n"
    "--output: -none-\n"
    "  \n"
-   "redis.call('echo', ' ####### FAKESUBS ####### ')\n"
+   "redis.call('echo', ' ####### ADD_FAKESUBS ####### ')\n"
    "local ns = ARGV[1]\n"
    "local id = ARGV[2]\n"
    "local num = tonumber(ARGV[3])\n"
@@ -43,14 +43,14 @@ redis_lua_scripts_t redis_lua_scripts = {
    "  return {err = (\"CLUSTER KEYSLOT ERROR. %i %s\"):format(num, id)}\n"
    "end\n"
    "redis.call('HINCRBY', subs_key, ngx_worker_id, num)\n"
-   "local subs_key_ttl = tonumber(redis.call('TTL',  subs_key))\n"
-   "if subs_key_ttl < 0 then\n"
-   "  subs_key_ttl = redis.call('TTL', chan_key)\n"
-   "  if subs_key_ttl <= 0 then\n"
+   "local subs_key_pttl = tonumber(redis.call('PTTL',  subs_key))\n"
+   "if subs_key_pttl < 0 then\n"
+   "  subs_key_pttl = redis.call('PTTL', chan_key)\n"
+   "  if subs_key_pttl <= 0 then\n"
    "    --60 seconds to get your shit together\n"
-   "    subs_key_ttl = 60\n"
+   "    subs_key_pttl = 60\n"
    "  end\n"
-   "  redis.call('EXPIRE', subs_key, subs_key_ttl)\n"
+   "  redis.call('PEXPIRE', subs_key, subs_key_pttl)\n"
    "end\n"
    "\n"
    "return nil\n"},
@@ -1067,10 +1067,10 @@ redis_lua_scripts_t redis_lua_scripts = {
    "  return concat(#channel_ids, \"channels,\", known_msgs_count, \"messages, all ok\")\n"
    "end\n"},
 
-  {"subscriber_register", "eb9c2bcc7186803a63740e0e5eaeaee4925bb50d",
+  {"subscriber_register", "24643f71942769759df94b4ddfea15925612f595",
    "--input: keys: [], values: [namespace, channel_id, subscriber_id, active_ttl_msec, ttl_safety_margin_msec, time, want_channel_settings]\n"
    "--  'subscriber_id' can be '-' for new id, or an existing id\n"
-   "--  'active_ttl_msec' is channel ttl with non-zero subscribers. -1 to persist, >0 ttl in sec\n"
+   "--  'active_ttl_msec' is channel ttl with non-zero subscribers. -1 to persist, >0 ttl in msec\n"
    "--  'ttl_safety_margin_msec' is number of seconds before TTL that Nchan issues a keepalive recheck\n"
    "--output: subscriber_id, num_current_subscribers, next_keepalive_time, channel_buffer_length\n"
    "--  'channel_buffer_length' is returned only if want_channel_settings is 1\n"
@@ -1114,11 +1114,11 @@ redis_lua_scripts_t redis_lua_scripts = {
    "local next_keepalive\n"
    "local actual_ttl = tonumber(redis.call('PTTL', keys.channel))\n"
    "local safe_ttl = active_ttl + ttl_safety_margin\n"
-   "if actual_ttl >= 0 and actual_ttl < safe_ttl then\n"
+   "if actual_ttl < safe_ttl then\n"
    "  setkeyttl(safe_ttl)\n"
-   "  next_keepalive = actual_ttl - ttl_safety_margin > 0 and actual_ttl - ttl_safety_margin or math.ceil(actual_ttl / 2)\n"
-   "else\n"
    "  next_keepalive = active_ttl\n"
+   "else\n"
+   "  next_keepalive = (actual_ttl - ttl_safety_margin > 0) and (actual_ttl - ttl_safety_margin) or math.ceil(actual_ttl / 2)\n"
    "end\n"
    "\n"
    "\n"
@@ -1182,4 +1182,4 @@ redis_lua_scripts_t redis_lua_scripts = {
    "\n"
    "return {sub_id, sub_count}\n"}
 };
-const int redis_lua_scripts_count=14;
+const int redis_lua_scripts_count=13;
