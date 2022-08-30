@@ -1078,7 +1078,7 @@ static void nodeset_cluster_check_event_callback(redisAsyncContext *ac, void *re
     }
     
     if(nodeset_cluster_keyslot_space_complete(ns, REDIS_NODE_READY)) {
-      nodeset_log_warning(ns, "config epoch has changed from %d to %d on node %s. Node roles have been updated and the keyspace is complete", node_nickname_cstr(node), ns->cluster.current_epoch, epoch);
+      nodeset_log_warning(ns, "config epoch has changed from %d to %d on node %s. Node roles have been updated and the keyspace is complete", ns->cluster.current_epoch, epoch, node_nickname_cstr(node));
     }
     else {
       nodeset_set_status(node->nodeset, REDIS_NODESET_CLUSTER_FAILING, "Config epoch has changed and the keyslot space is incomplete");
