@@ -1767,6 +1767,10 @@ int node_disconnect(redis_node_t *node, int disconnected_state) {
   if(node->timeout.ev.timer_set) {
     ngx_del_timer(&node->timeout.ev);
   }
+  
+  //reset timeout values.
+  //this isn't stricrlt necessary for correct operation -- after redisAsyncFree, all outstanding commands will have been received (with an error, but that's beside the point)
+  //this is just to stay clean and restart from 0
   node->timeout.sent = 0;
   node->timeout.received = 0;
   node->timeout.prev_sent = 0;
