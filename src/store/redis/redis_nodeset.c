@@ -932,8 +932,7 @@ static void node_command_timeout_check_event(ngx_event_t *ev) {
   
   if(cur_received < prev_sent) {
     //TIMED OUT!
-    node_log_debug(node, "TIMED OUT!. sent: %d, received: %d, prev_sent: %d", node->timeout.sent, cur_received, prev_sent);
-    node_log_warning(node, "%d command%s took longer than the timeout limit. Marking node as failed", prev_sent - cur_received, prev_sent - cur_received == 1 ? "" : "s");
+    node_log_warning(node, "%d command%s took longer than the timeout limit of %ds. Marking node as failed", prev_sent - cur_received, prev_sent - cur_received == 1 ? "" : "s", ns->settings.command_timeout/1000);
     node_disconnect(node, REDIS_NODE_FAILED);
     nodeset_examine(node->nodeset);
     return;
@@ -1028,9 +1027,10 @@ static void nodeset_cluster_check_event_callback(redisAsyncContext *ac, void *re
     goto error;
   }
   
-  int epoch_changed = 0;
+  int epoch_changed = 0, prev_epoch;
   if(ns->cluster.current_epoch < epoch) {
     epoch_changed = 1;
+    prev_epoch = node->cluster.current_epoch;
     node->cluster.current_epoch = epoch;
     ns->cluster.current_epoch = epoch;
   }
@@ -1069,16 +1069,16 @@ static void nodeset_cluster_check_event_callback(redisAsyncContext *ac, void *re
     }
   }
   
-  if(epoch_changed || outdated_nodes) {
-    if(outdated_nodes) {
-      char errbuf[512];
-      ngx_snprintf((u_char *)errbuf, 512, "%d node%s role or keyslot assignment has changed.%s%Z", outdated_nodes, outdated_nodes == 1 ? "" : "s", epoch_changed ? " Also, the config epoch has changed." : "");
-      nodeset_set_status(node->nodeset, REDIS_NODESET_CLUSTER_FAILING, errbuf);
-      return;
-    }
-    
+  if(outdated_nodes) {
+    char errbuf[512];
+    ngx_snprintf((u_char *)errbuf, 512, "%d node%s role or keyslot assignment has changed.%s%Z", outdated_nodes, outdated_nodes == 1 ? "" : "s", epoch_changed ? " Also, the config epoch has changed." : "");
+    nodeset_set_status(node->nodeset, REDIS_NODESET_CLUSTER_FAILING, errbuf);
+    return;
+  }
+  
+  if(epoch_changed) {
     if(nodeset_cluster_keyslot_space_complete(ns, REDIS_NODE_READY)) {
-      nodeset_log_warning(ns, "config epoch has changed from %d to %d on node %s. Node roles have been updated and the keyspace is complete", ns->cluster.current_epoch, epoch, node_nickname_cstr(node));
+      nodeset_log_warning(ns, "config epoch has changed from %d to %d on node %s. Node roles remain unchanged and the cluster is still healthy.", prev_epoch, epoch, node_nickname_cstr(node));
     }
     else {
       nodeset_set_status(node->nodeset, REDIS_NODESET_CLUSTER_FAILING, "Config epoch has changed and the keyslot space is incomplete");
@@ -1225,6 +1225,7 @@ static void nodeset_recover_cluster_handler(redisAsyncContext *ac, void *rep, vo
     ngx_snprintf(errbuf, 1024, "CLUSTER INFO reply is not a string%Z");
     goto fail;
   }
+  
   if(!nchan_cstr_match_line(cluster_info_reply->str, "cluster_state:ok")) {
     node->cluster.ok=0;
     ngx_snprintf(errbuf, 1024, "cluster_state not ok on node %s.%Z", node_nickname_cstr(node));
