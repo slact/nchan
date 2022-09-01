@@ -987,13 +987,12 @@ static void nodeset_cluster_check_event_callback(redisAsyncContext *ac, void *re
   int                         epoch;
   const char                 *err = NULL;
   
+  node_command_received(node);
   
   if(reply == NULL) {
     //Node should have already disconnected
     return;
   }
-  
-  node_command_received(node);
   
   if(reply->type == REDIS_REPLY_ERROR) {
     err = reply->str ? reply->str : "error in reply";
