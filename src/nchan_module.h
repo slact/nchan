@@ -35,6 +35,7 @@
 #include <util/nchan_output.h>
 #include <util/nchan_debug.h>
 #include <util/nchan_stats.h>
+#include <util/nchan_accumulator.h>
 
 extern ngx_pool_t *nchan_pool;
 extern ngx_int_t nchan_worker_processes;
