@@ -23,6 +23,9 @@
 #include <util/nchan_rbtree.h>
 #include <util/nchan_list.h>
 #include <util/nchan_slist.h>
+#include <util/nchan_accumulator.h>
+#include <util/nchan_timequeue.h>
+
 #include "redis_lua_commands.h"
 //#include "store-private.h"
 
@@ -129,6 +132,27 @@ typedef struct {
 } redis_nodeset_dbg_range_tree_t;
 #endif
 
+typedef enum {
+  NCHAN_REDIS_CMD_CONNECT = 0, //must start at 0
+  NCHAN_REDIS_CMD_PUBSUB_SUBSCRIBE,
+  NCHAN_REDIS_CMD_PUBSUB_UNSUBSCRIBE,
+  NCHAN_REDIS_CMD_CHANNEL_CHANGE_SUBSCRIBER_COUNT,
+  NCHAN_REDIS_CMD_CHANNEL_DELETE,
+  NCHAN_REDIS_CMD_CHANNEL_FIND,
+  NCHAN_REDIS_CMD_CHANNEL_GET_MESSAGE,
+  NCHAN_REDIS_CMD_CHANNEL_GET_LARGE_MESSAGE,
+  NCHAN_REDIS_CMD_CHANNEL_PUBLISH,
+  NCHAN_REDIS_CMD_CHANNEL_REQUEST_SUBSCRIBER_INFO,
+  NCHAN_REDIS_CMD_CHANNEL_GET_SUBSCRIBER_INFO_ID,
+  NCHAN_REDIS_CMD_CHANNEL_SUBSCRIBE,
+  NCHAN_REDIS_CMD_CHANNEL_UNSUBSCRIBE,
+  NCHAN_REDIS_CMD_OTHER  //must be last in this enum
+} redis_node_cmd_tag_t;
+
+typedef struct {
+  nchan_accumulator_t timings[NCHAN_REDIS_CMD_OTHER+1];
+  nchan_timequeue_t   cmd_timequeue;
+} nchan_redis_command_stats_t;
 
 #define NODESET_MAX_STATUS_MSG_LENGTH 512
 struct redis_nodeset_s {
@@ -196,6 +220,8 @@ struct redis_nodeset_s {
     nchan_slist_t               disconnected_pubsub;
   }                           channels;
   
+  nchan_redis_command_stats_t  stats;
+  
   nchan_reaper_t              chanhead_reaper;
   nchan_list_t                onready_callbacks;
   char                        status_msg[NODESET_MAX_STATUS_MSG_LENGTH];
@@ -244,6 +270,7 @@ struct redis_node_s {
     redisAsyncContext         *pubsub;
     redisContext              *sync;
   }                         ctx;
+  nchan_redis_command_stats_t  stats;
   int                       pending_commands;
   struct {
     long long                 sent;
@@ -267,8 +294,6 @@ typedef struct {
   redis_node_t           *node;
 } redis_nodeset_slot_range_node_t;
 
-
-
 redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf);
 ngx_int_t nodeset_initialize(char *worker_id, redisCallbackFn *subscribe_handler);
 redis_nodeset_t *nodeset_find(nchan_redis_conf_t *rcf);
@@ -288,6 +313,9 @@ int node_remove_slave_node(redis_node_t *node, redis_node_t *slave);
 
 void node_command_sent(redis_node_t *node);
 void node_command_received(redis_node_t *node);
+
+void node_command_time_start(redis_node_t *node, redis_node_cmd_tag_t cmdtag);
+void node_command_time_finish(redis_node_t *node, redis_node_cmd_tag_t cmdtag);
 
 ngx_int_t nodeset_connect_all(void);
 int nodeset_connect(redis_nodeset_t *ns);
@@ -362,7 +390,7 @@ uint16_t redis_keyslot_from_channel_id(ngx_str_t *chid);
 
 uint16_t redis_crc16(uint16_t crc, const char *buf, int len);
 
-
 const char *node_nickname_cstr(redis_node_t *node);
+ngx_str_t *nodeset_stats_string(nchan_loc_conf_t *cf, ngx_pool_t *pool);
   
 #endif /* NCHAN_REDIS_NODESET_H */

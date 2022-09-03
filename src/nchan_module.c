@@ -16,6 +16,7 @@
 #include <subscribers/benchmark.h>
 #include <store/memory/store.h>
 #include <store/redis/store.h>
+#include <store/redis/redis_nodeset.h>
 
 #include <nchan_setup.c>
 
@@ -34,6 +35,7 @@
 
 ngx_int_t           nchan_worker_processes;
 int                 nchan_stub_status_enabled = 0;
+int                 nchan_redis_stats_enabled = 0;
 
 
 static void nchan_publisher_body_handler(ngx_http_request_t *r);
@@ -294,6 +296,18 @@ ngx_int_t nchan_stub_status_handler(ngx_http_request_t *r) {
   out.next = NULL;
   
   return ngx_http_output_filter(r, &out);
+}
+
+
+static void redis_stats_callback(ngx_str_t *stats, void *pd) {
+  ngx_http_request_t *r = pd;
+  ngx_str_t content_type = ngx_string("application/json");
+  nchan_respond_string(r, NGX_HTTP_OK, &content_type, stats, 1);
+}
+
+ngx_int_t nchan_redis_stats_handler(ngx_http_request_t *r) {
+  //TODO
+  return NGX_HTTP_INTERNAL_SERVER_ERROR;
 }
 
 static int nchan_parse_message_buffer_config(ngx_http_request_t *r, nchan_loc_conf_t *cf, char **err) {

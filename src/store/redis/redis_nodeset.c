@@ -1027,7 +1027,7 @@ static void nodeset_cluster_check_event_callback(redisAsyncContext *ac, void *re
     goto error;
   }
   
-  int epoch_changed = 0, prev_epoch;
+  int epoch_changed = 0, prev_epoch = 0;
   if(ns->cluster.current_epoch < epoch) {
     epoch_changed = 1;
     prev_epoch = node->cluster.current_epoch;
@@ -1421,6 +1421,12 @@ static redis_node_t *nodeset_node_create_with_space(redis_nodeset_t *ns, redis_c
   node->ctx.pubsub = NULL;
   node->ctx.sync = NULL;
   
+  int i;
+  for(i=0; i<NCHAN_REDIS_CMD_OTHER; i++) {
+    nchan_accumulator_init(&node->stats.timings[i], ACCUMULATOR_SUM, 0);
+  }
+  nchan_timequeue_init(&node->stats.cmd_timequeue, 32);
+  
   assert(nodeset_node_find_by_connect_params(ns, rcp));
   return node;
 }
@@ -1686,6 +1692,7 @@ static ngx_int_t set_preallocated_peername(redisAsyncContext *ctx, ngx_str_t *ds
 static void node_connector_fail(redis_node_t *node, const char *err) {
   const char  *ctxerr = NULL;
   node->connecting = 0;
+  node_command_time_finish(node, NCHAN_REDIS_CMD_CONNECT);
   if(node->ctx.cmd && node->ctx.cmd->err) {
     ctxerr = node->ctx.cmd->errstr;
   }
@@ -2345,6 +2352,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       break;
     case REDIS_NODE_FAILED:
     case REDIS_NODE_DISCONNECTED:
+      node_command_time_start(node, NCHAN_REDIS_CMD_CONNECT);
       assert(!node->connect_timeout);
       if((node->ctx.cmd = node_connect_context(node)) == NULL) { //always connect the cmd ctx to the hostname
         return node_connector_fail(node, "failed to open redis async context for cmd");
@@ -2756,6 +2764,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       //NOTE: consent required each time a fallthrough is imposed
       /* fall through */
     case REDIS_NODE_READY:
+      node_command_time_finish(node, NCHAN_REDIS_CMD_CONNECT);
       node_make_ready(node);
       node->connecting = 0;
       nodeset_examine(nodeset);
@@ -3693,6 +3702,21 @@ redis_node_t *nodeset_node_pubsub_find_by_chanhead(void *chan) {
   node = nodeset_node_random_master_or_slave(node);
   nodeset_node_associate_pubsub_chanhead(node, ch);
   return ch->redis.node.pubsub;
+}
+
+void node_command_time_start(redis_node_t *node, redis_node_cmd_tag_t cmdtag) {
+  nchan_timequeue_queue(&node->stats.cmd_timequeue, cmdtag);
+}
+void node_command_time_finish(redis_node_t *node, redis_node_cmd_tag_t cmdtag) {
+  ngx_msec_t start_time;
+  if(!nchan_timequeue_dequeue(&node->stats.cmd_timequeue, cmdtag, &start_time)) {
+    node_log_error(node, "CMDTAG didn't match when recording command time -- or another problem");
+    return;
+  }
+  ngx_msec_t t = ngx_current_msec - start_time;
+  assert(cmdtag > 0 && cmdtag <= NCHAN_REDIS_CMD_OTHER);
+  
+  nchan_accumulator_update(&node->stats.timings[cmdtag], t);
 }
 
 /*
