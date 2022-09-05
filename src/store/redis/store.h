@@ -23,6 +23,4 @@ int nchan_store_redis_validate_url(ngx_str_t *url);
 
 ngx_int_t redis_store_callback_on_connected(nchan_loc_conf_t *cf, ngx_msec_t max_wait, callback_pt cb, void *privdata);
 
-typedef void (*nchan_redis_upstream_stats_callback_pt)(ngx_str_t *stats, void *pd);
-ngx_int_t nchan_redis_upstream_stats_string(nchan_loc_conf_t *cf, ngx_pool_t *pool, nchan_redis_upstream_stats_callback_pt cb);
 #endif // NCHAN_REDIS_STORE_H

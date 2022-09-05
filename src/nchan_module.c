@@ -299,14 +299,18 @@ ngx_int_t nchan_stub_status_handler(ngx_http_request_t *r) {
 }
 
 
-static void redis_stats_callback(ngx_str_t *stats, void *pd) {
-  ngx_http_request_t *r = pd;
-  ngx_str_t content_type = ngx_string("application/json");
-  nchan_respond_string(r, NGX_HTTP_OK, &content_type, stats, 1);
+static ngx_int_t redis_stats_callback(ngx_int_t count, void *d, void *pd) {
+  redis_node_command_stats_t *stats = d;
+  ngx_http_request_t         *r = pd;
+  
+  
+  
+  
 }
 
 ngx_int_t nchan_redis_stats_handler(ngx_http_request_t *r) {
-  //TODO
+  ngx_str_t  *nodeset_name;
+  redis_nodeset_global_command_stats_palloc_async(nodeset_name, &r->pool, redis_stats_callback, r);
   return NGX_HTTP_INTERNAL_SERVER_ERROR;
 }
 

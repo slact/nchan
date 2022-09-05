@@ -391,6 +391,21 @@ uint16_t redis_keyslot_from_channel_id(ngx_str_t *chid);
 uint16_t redis_crc16(uint16_t crc, const char *buf, int len);
 
 const char *node_nickname_cstr(redis_node_t *node);
-ngx_str_t *nodeset_stats_string(nchan_loc_conf_t *cf, ngx_pool_t *pool);
+
+typedef struct {
+  char                         name[128];
+  char                         id[65];
+  nchan_redis_command_stats_t  stats;
+} redis_node_command_stats_t;
+
+typedef struct {
+  char                         name[128];
+  size_t                       count;
+  redis_node_command_stats_t  *stats;
+} redis_nodeset_command_stats_t;
+
+redis_node_command_stats_t *redis_nodeset_worker_command_stats_alloc(redis_nodeset_t *ns, size_t *node_stats_count);
+
+void redis_nodeset_global_command_stats_palloc_async(ngx_str_t *nodeset_name, ngx_pool_t *pool, callback_pt *cb, void *pd);
   
 #endif /* NCHAN_REDIS_NODESET_H */
