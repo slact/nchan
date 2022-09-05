@@ -2628,11 +2628,6 @@ static ngx_int_t nchan_store_request_subscriber_info(ngx_str_t *channel_id, ngx_
   return NGX_DONE;
 }
 
-ngx_int_t nchan_redis_upstream_stats_string(nchan_loc_conf_t *cf, ngx_pool_t *pool, nchan_redis_upstream_stats_callback_pt cb) {
-  //TODO: get the righ nodeset
-  //TODO: use IPC to broadcast stats request to all workers.
-}
-
 nchan_store_t nchan_store_redis = {
   //init
   &nchan_store_init_module,

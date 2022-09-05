@@ -11,6 +11,7 @@
 #include <subscribers/memstore_redis.h>
 #include <util/nchan_msg.h>
 #include <util/nchan_benchmark.h>
+#include <store/redis/redis_nodeset.h>
 
 
 //macro black magic, AKA X-Macros
@@ -1150,7 +1151,7 @@ static void receive_benchmark_abort(ngx_int_t sender, benchmark_abort_data_t *d)
 typedef struct {
   void                       *redis_nodeset;
   size_t                      stats_count;
-  callback_pt                *cb;
+  callback_pt                 cb;
   void                       *pd;
   redis_node_command_stats_t *stats;
 } redis_stats_request_data_t;
@@ -1199,6 +1200,9 @@ fail:
   return;
 }
 
+static void receive_redis_stats_reply(ngx_int_t sender, redis_stats_request_data_t *data) {
+  
+}
 
 
 #define MAKE_ipc_cmd_handler(val) [offsetof(ipc_handlers_t, val)/sizeof(ipc_handler_pt)] = (ipc_handler_pt )receive_ ## val,

@@ -399,7 +399,8 @@ typedef struct {
 } redis_node_command_stats_t;
 
 typedef struct {
-  char                         name[128];
+  char                        *error;
+  char                        *name;
   size_t                       count;
   redis_node_command_stats_t  *stats;
 } redis_nodeset_command_stats_t;

@@ -352,7 +352,7 @@ static redis_node_dbg_list_t *nodeset_update_debuginfo(redis_nodeset_t *nodeset)
 
 static const char *rcp_cstr(redis_connect_params_t *rcp) {
   static char    buf[512];
-  ngx_snprintf((u_char *)buf, 512, "%V:%d%Z", , rcp->peername.len > 0 ? &rcp->peername : &rcp->hostname, rcp->port);
+  ngx_snprintf((u_char *)buf, 512, "%V:%d%Z", rcp->peername.len > 0 ? &rcp->peername : &rcp->hostname, rcp->port);
   return buf;
 }
 static const char *node_cstr(redis_node_t *node) {
@@ -3719,7 +3719,7 @@ void node_command_time_finish(redis_node_t *node, redis_node_cmd_tag_t cmdtag) {
   nchan_accumulator_update(&node->stats.timings[cmdtag], t);
 }
 
-redis_node_command_stats_t *redis_nodeset_command_stats_alloc(redis_nodeset_t *ns, size_t *node_stats_count) {
+redis_node_command_stats_t *redis_nodeset_worker_command_stats_alloc(redis_nodeset_t *ns, size_t *node_stats_count) {
   int numnodes = 0;
   redis_node_t *node;
   for(node = nchan_list_first(&ns->nodes); node != NULL; node = nchan_list_next(node)) {
@@ -3733,15 +3733,24 @@ redis_node_command_stats_t *redis_nodeset_command_stats_alloc(redis_nodeset_t *n
   
   int i=0;
   for(node = nchan_list_first(&ns->nodes); node != NULL; node = nchan_list_next(node)) {
-    ngx_snprintf(&stats[i].name, sizeof(stats[i].name), "%s%Z", node_nickname_cstr(node));
-    ngx_snprintf(&stats[i].id, sizeof(stats[i].name), "%V%Z", node->cluster.enabled ? &node->cluster.master_id : &node->run_id);
-    stats[i].stats = stats;
+    ngx_snprintf((u_char *)stats[i].name, sizeof(stats[i].name), "%s%Z", node_nickname_cstr(node));
+    ngx_snprintf((u_char *)stats[i].id, sizeof(stats[i].name), "%V%Z", node->cluster.enabled ? &node->cluster.master_id : &node->run_id);
+    stats[i].stats = node->stats;
   }
   
   *node_stats_count = numnodes;
   return stats;
 }
 
+
+void redis_nodeset_global_command_stats_palloc_async(ngx_str_t *nodeset_name, ngx_pool_t *pool, callback_pt *cb, void *pd) {
+  redis_nodeset_t  *ns;
+  int i;
+  for(i=0; i < redis_nodeset_count; i++) {
+    //do nothing
+  }
+  
+}
 /*
  * Copyright 2001-2010 Georges Menie (www.menie.org)
  * Copyright 2010 Salvatore Sanfilippo (adapted to Redis coding style)
