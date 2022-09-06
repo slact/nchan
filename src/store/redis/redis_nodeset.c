@@ -60,6 +60,7 @@ static int nodeset_reset_cluster_node_info(redis_nodeset_t *ns);
 static void nodeset_cluster_check_event(ngx_event_t *ev);
 static void nodeset_check_status_event(ngx_event_t *ev);
 static void nodeset_check_spublish_availability(redis_nodeset_t *ns);
+static int nodeset_set_name_alloc(redis_nodeset_t *nodeset);
 static int nodeset_link_cluster_node_roles(redis_nodeset_t *nodeset);
 static int nodeset_cluster_node_is_outdated(redis_nodeset_t *ns, cluster_nodes_line_t *l);
 static int node_discover_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l, redis_node_t **known_node);
@@ -3733,13 +3734,32 @@ redis_node_command_stats_t *redis_nodeset_worker_command_stats_alloc(redis_nodes
   return stats;
 }
 
+typedef struct {
+  redis_nodeset_t *ns;
+  
+} nodeset_global_command_stats_state_t;
 
-void redis_nodeset_global_command_stats_palloc_async(ngx_str_t *nodeset_name, ngx_pool_t *pool, callback_pt *cb, void *pd) {
-  redis_nodeset_t  *ns;
+ngx_int_t redis_nodeset_global_command_stats_palloc_async(ngx_str_t *nodeset_name, ngx_pool_t *pool, callback_pt *cb, void *pd) {
+  redis_nodeset_t  *ns = NULL;
   int i;
   for(i=0; i < redis_nodeset_count; i++) {
-    //do nothing
+    if(strcmp(ns->name, nodeset_name) == 0) {
+      ns = redis_nodeset[i];
+      break;
+    }
   }
+  if(ns == NULL) {
+    redis_nodeset_command_stats_t *stats = ngx_palloc(pool, sizeof(stats));
+    if(!stats) {
+      return NGX_ERROR;
+    }
+    
+    stats->name = nodeset_name;
+    stats->error = "No Redis upstream configured with such name";
+    stats->count = 0;
+    stats->stats = NULL; 
+  }
+  
   
 }
 /*
