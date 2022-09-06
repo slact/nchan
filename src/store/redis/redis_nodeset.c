@@ -55,7 +55,6 @@ static ngx_str_t       default_redis_url = ngx_string(NCHAN_REDIS_DEFAULT_URL);
 static void node_connector_callback(redisAsyncContext *ac, void *rep, void *privdata);
 static int nodeset_cluster_keyslot_space_complete(redis_nodeset_t *ns, int min_node_state);
 static nchan_redis_ip_range_t *node_ip_blacklisted(redis_nodeset_t *ns, redis_connect_params_t *rcp);
-static char *nodeset_name_cstr(redis_nodeset_t *nodeset, char *buf, size_t maxlen);
 static int nodeset_recover_cluster(redis_nodeset_t *ns);
 static int nodeset_reset_cluster_node_info(redis_nodeset_t *ns);
 static void nodeset_cluster_check_event(ngx_event_t *ev);
@@ -587,15 +586,7 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
   ns->cluster.current_check_interval = 0;
   DBG("nodeset created");
   
-  char buf[1024];
-  nodeset_name_cstr(ns, buf, 1024);
-  if(strlen(buf)>0) {
-    ns->name = ngx_alloc(strlen(buf)+1, ngx_cycle->log);
-    strcpy(ns->name, buf);
-  }
-  else {
-    ns->name = nchan_redis_blankname;
-  }
+  nodeset_set_name_alloc(ns);
   
   if(ns->settings.tls.enabled) {
     //if all the URLs are rediss://, then turn on SSL for the nodeset
@@ -3066,34 +3057,34 @@ static ngx_int_t nodeset_reconnect_disconnected_channels(redis_nodeset_t *ns) {
   return NGX_OK;
 }
 
-static char* nodeset_name_cstr(redis_nodeset_t *nodeset, char *buf, size_t maxlen) {
-  const char *what = NULL;
+static int nodeset_set_name_alloc(redis_nodeset_t *nodeset) {
   ngx_str_t  *name = NULL;
   if(nodeset->upstream) {
-    what = "upstream";
+    nodeset->name_type = "upstream";
     name = &nodeset->upstream->host;
   }
   else {
+    nodeset->name_type = "host";
     ngx_str_t **url = nchan_list_first(&nodeset->urls);
     if(url && *url) {
       name = *url;
     }
-    what = "host";
   }
   
-  if(what && name) {
-    ngx_snprintf((u_char *)buf, maxlen, "%s %V%Z", what, name);
+  if(name->len == 0) {
+    nodeset->name = nchan_redis_blankname;
+    return 1;
   }
-  else if(what) {
-    ngx_snprintf((u_char *)buf, maxlen, "%s%Z", what);
+  
+  char *namebuf = ngx_alloc(name->len+1, ngx_cycle->log);
+  if(!namebuf) {
+    return 0;
   }
-  else if(name) {
-    ngx_snprintf((u_char *)buf, maxlen, "%V%Z", name);
-  }
-  else {
-    ngx_snprintf((u_char *)buf, maxlen, "node set%Z");
-  }
-  return buf;
+  
+  ngx_snprintf((u_char *)namebuf, name->len+1, "%V%Z", name);
+  nodeset->name = namebuf;
+  
+  return 1;
 }
 
 const char *node_nickname_cstr(redis_node_t *node) {

@@ -40,7 +40,7 @@
 #define node_log_debug(node, fmt, args...)    node_log((node), NGX_LOG_DEBUG, fmt, ##args)
   
 #define nodeset_log(nodeset, lvl, fmt, args...) \
-  ngx_log_error(lvl, ngx_cycle->log, 0, "nchan: Redis %s: " fmt, (nodeset)->name, ##args)
+  ngx_log_error(lvl, ngx_cycle->log, 0, "nchan: Redis %s %s: " fmt, (nodeset)->name_type, (nodeset)->name, ##args)
 #define nodeset_log_error(nodeset, fmt, args...)    nodeset_log((nodeset), NGX_LOG_ERR, fmt, ##args)
 #define nodeset_log_warning(nodeset, fmt, args...)  nodeset_log((nodeset), NGX_LOG_WARN, fmt, ##args)
 #define nodeset_log_notice(nodeset, fmt, args...)   nodeset_log((nodeset), NGX_LOG_NOTICE, fmt, ##args)
@@ -162,6 +162,7 @@ struct redis_nodeset_s {
   //  maybe a cluster of masters and their slaves
   //slaves of slaves not included
   char                       *name;
+  char                       *name_type;
   redis_nodeset_status_t      status;
   ngx_event_t                 status_check_ev;
   ngx_time_t                  current_status_start;
