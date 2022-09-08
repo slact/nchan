@@ -33,10 +33,13 @@ typedef struct {
 } nchan_accumulator_t;
 
 int nchan_accumulator_update(nchan_accumulator_t *acc, double val);
-int nchan_accumulator_atomic_update(nchan_accumulator_t *avg, double val);
+int nchan_accumulator_atomic_update(nchan_accumulator_t *acc, double val);
 
-double nchan_accumulator_value(nchan_accumulator_t *avg);
-int nchan_accumulator_init(nchan_accumulator_t *avg, nchan_accumulator_type_t type, double halflife);
+double nchan_accumulator_value(nchan_accumulator_t *acc);
+double nchan_accumulator_weight(nchan_accumulator_t *acc);
+double nchan_accumulator_value(nchan_accumulator_t *acc);
+int nchan_accumulator_init(nchan_accumulator_t *acc, nchan_accumulator_type_t type, double halflife);
 int nchan_accumulator_merge(nchan_accumulator_t *merge_dst, nchan_accumulator_t *merge_src);
+void nchan_accumulator_reset(nchan_accumulator_t *acc);
 
 #endif //NCHAN_ACCUMULATOR_H

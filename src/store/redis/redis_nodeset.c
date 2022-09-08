@@ -36,10 +36,10 @@ const nchan_backoff_settings_t NCHAN_REDIS_DEFAULT_CLUSTER_RECOVERY_DELAY = {
 };
 
 
-static redis_nodeset_t  redis_nodeset[NCHAN_MAX_NODESETS];
-static int              redis_nodeset_count = 0;
-static char            *redis_worker_id = NULL;
-static char            *nchan_redis_blankname = "";
+redis_nodeset_t  redis_nodeset[NCHAN_MAX_NODESETS];
+int              redis_nodeset_count = 0;
+char            *redis_worker_id = NULL;
+char            *nchan_redis_blankname = "";
 static redisCallbackFn *redis_subscribe_callback = NULL;
 
 typedef struct {
@@ -3711,57 +3711,6 @@ void node_command_time_finish(redis_node_t *node, redis_node_cmd_tag_t cmdtag) {
   nchan_accumulator_update(&node->stats.timings[cmdtag], t);
 }
 
-redis_node_command_stats_t *redis_nodeset_worker_command_stats_alloc(redis_nodeset_t *ns, size_t *node_stats_count) {
-  int numnodes = 0;
-  redis_node_t *node;
-  for(node = nchan_list_first(&ns->nodes); node != NULL; node = nchan_list_next(node)) {
-    numnodes++;
-  }
-  
-  redis_node_command_stats_t *stats = ngx_alloc(sizeof(*stats) * numnodes, ngx_cycle->log);
-  if(!stats) {
-    return NULL;
-  }
-  
-  int i=0;
-  for(node = nchan_list_first(&ns->nodes); node != NULL; node = nchan_list_next(node)) {
-    ngx_snprintf((u_char *)stats[i].name, sizeof(stats[i].name), "%s%Z", node_nickname_cstr(node));
-    ngx_snprintf((u_char *)stats[i].id, sizeof(stats[i].name), "%V%Z", node->cluster.enabled ? &node->cluster.master_id : &node->run_id);
-    stats[i].stats = node->stats;
-  }
-  
-  *node_stats_count = numnodes;
-  return stats;
-}
-
-typedef struct {
-  redis_nodeset_t *ns;
-  
-} nodeset_global_command_stats_state_t;
-
-ngx_int_t redis_nodeset_global_command_stats_palloc_async(ngx_str_t *nodeset_name, ngx_pool_t *pool, callback_pt *cb, void *pd) {
-  redis_nodeset_t  *ns = NULL;
-  int i;
-  for(i=0; i < redis_nodeset_count; i++) {
-    if(strcmp(ns->name, nodeset_name) == 0) {
-      ns = redis_nodeset[i];
-      break;
-    }
-  }
-  if(ns == NULL) {
-    redis_nodeset_command_stats_t *stats = ngx_palloc(pool, sizeof(stats));
-    if(!stats) {
-      return NGX_ERROR;
-    }
-    
-    stats->name = nodeset_name;
-    stats->error = "No Redis upstream configured with such name";
-    stats->count = 0;
-    stats->stats = NULL; 
-  }
-  
-  
-}
 /*
  * Copyright 2001-2010 Georges Menie (www.menie.org)
  * Copyright 2010 Salvatore Sanfilippo (adapted to Redis coding style)

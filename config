@@ -98,6 +98,7 @@ _NCHAN_REDIS_STORE_SRCS="\
   ${ngx_addon_dir}/src/store/redis/redis_lua_commands.c \
   ${ngx_addon_dir}/src/store/redis/redis_nodeset_parser.c \
   ${ngx_addon_dir}/src/store/redis/redis_nodeset.c \
+  ${ngx_addon_dir}/src/store/redis/redis_nodeset_stats.c \
   ${ngx_addon_dir}/src/store/redis/rdsstore.c \
   ${ngx_addon_dir}/src/store/redis/redis_nginx_adapter.c \
 "

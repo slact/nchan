@@ -396,7 +396,7 @@ const char *node_nickname_cstr(redis_node_t *node);
 typedef struct {
   char                         name[128];
   char                         id[65];
-  nchan_redis_command_stats_t  stats;
+  nchan_accumulator_t          timings[NCHAN_REDIS_CMD_OTHER+1];
 } redis_node_command_stats_t;
 
 typedef struct {
@@ -407,7 +407,7 @@ typedef struct {
 } redis_nodeset_command_stats_t;
 
 redis_node_command_stats_t *redis_nodeset_worker_command_stats_alloc(redis_nodeset_t *ns, size_t *node_stats_count);
-
-void redis_nodeset_global_command_stats_palloc_async(ngx_str_t *nodeset_name, ngx_pool_t *pool, callback_pt *cb, void *pd);
+ngx_int_t redis_nodeset_global_command_stats_palloc_async(ngx_str_t *nodeset_name, ngx_pool_t *pool, callback_pt cb, void *pd);
+ngx_chain_t *redis_nodeset_stats_response_body_chain_palloc(redis_nodeset_command_stats_t *nstats , ngx_pool_t *pool);
   
 #endif /* NCHAN_REDIS_NODESET_H */

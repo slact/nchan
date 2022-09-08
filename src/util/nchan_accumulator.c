@@ -178,3 +178,21 @@ int nchan_accumulator_merge(nchan_accumulator_t *dst, nchan_accumulator_t *src) 
   }
 }
 
+void nchan_accumulator_reset(nchan_accumulator_t *acc) {
+  switch(acc->type) {
+    case ACCUMULATOR_EXP_DECAY_FLOAT:
+      acc->data.ed_float.value = 0;
+      acc->data.ed_float.weight = 0;
+      break;
+    
+    case ACCUMULATOR_SUM:
+      acc->data.sum.value = 0;
+      acc->data.sum.weight = 0;
+      break;
+      
+    default:
+      //do nothing
+      break;
+  }
+}
+

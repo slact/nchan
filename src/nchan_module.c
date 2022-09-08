@@ -298,20 +298,50 @@ ngx_int_t nchan_stub_status_handler(ngx_http_request_t *r) {
   return ngx_http_output_filter(r, &out);
 }
 
-
-static ngx_int_t redis_stats_callback(ngx_int_t count, void *d, void *pd) {
-  redis_node_command_stats_t *stats = d;
-  ngx_http_request_t         *r = pd;
+static ngx_int_t redis_stats_callback(ngx_int_t rc, void *d, void *pd) {
+  redis_nodeset_command_stats_t *stats = d;
+  ngx_http_request_t            *r = pd;
+  ngx_str_t                      content_type_plain = ngx_string("text/plain");
+  ngx_str_t                      content_type_json = ngx_string("application/json");
   
   
+  if(stats->error) {
+    nchan_respond_cstring(r, NGX_HTTP_INTERNAL_SERVER_ERROR, &content_type_plain, stats->error, 1);
+    return NGX_OK;
+  }
   
+  if(stats->count == 0 || stats->stats == NULL) {
+    nchan_respond_cstring(r, NGX_HTTP_INTERNAL_SERVER_ERROR, &content_type_plain, "weird error getting status data", 1);
+    return NGX_OK;
+  }
   
+  ngx_chain_t *body = redis_nodeset_stats_response_body_chain_palloc(stats, r->pool);
+  if(body) {
+    nchan_respond_cstring(r, NGX_HTTP_INTERNAL_SERVER_ERROR, &content_type_plain, "failed to allocate response body", 1);
+    return NGX_OK;
+  }
+  
+  r->headers_out.content_type = content_type_json;
+  nchan_respond_status(r, NGX_HTTP_OK, NULL, body, 1);
+  return NGX_OK;
 }
 
 ngx_int_t nchan_redis_stats_handler(ngx_http_request_t *r) {
-  ngx_str_t  *nodeset_name;
-  redis_nodeset_global_command_stats_palloc_async(nodeset_name, &r->pool, redis_stats_callback, r);
-  return NGX_HTTP_INTERNAL_SERVER_ERROR;
+  ngx_str_t            *nodeset_name;
+  
+  
+  ngx_int_t             rc = redis_nodeset_global_command_stats_palloc_async(nodeset_name, r->pool, redis_stats_callback, r);
+  ngx_str_t             content_type_plain = ngx_string("text/plain");
+  
+  switch(rc) {
+    case NGX_ERROR:
+      return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    case NGX_DECLINED:
+      nchan_respond_sprintf(r, NGX_HTTP_NOT_FOUND, &content_type_plain, 0, "Redis upstream \"%V\" not found", nodeset_name);
+      return NGX_OK;
+    default:
+      return rc;
+  }
 }
 
 static int nchan_parse_message_buffer_config(ngx_http_request_t *r, nchan_loc_conf_t *cf, char **err) {
@@ -695,7 +725,7 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
     cf->storage_engine->set_group_limits(nchan_get_group_name(r, cf, ctx), cf, &group_limits, NULL, NULL);
   }
   else {
-    // there waas an error parsing group limit strings, and it has already been sent in the response. 
+    // there was an error parsing group limit strings, and it has already been sent in the response. 
     // just quit.
     return NGX_OK;
   }

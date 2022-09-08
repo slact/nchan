@@ -25,4 +25,4 @@ ngx_int_t memstore_ipc_broadcast_benchmark_stop(void);
 ngx_int_t memstore_ipc_broadcast_benchmark_finish(void);
 ngx_int_t memstore_ipc_broadcast_benchmark_abort(void);
 
-ngx_int_t memstore_ipc_brpadcast_get_redis_stats(void *nodeset, callback_pt *cb, void *pd);
+ngx_int_t memstore_ipc_broadcast_redis_stats_request(void *nodeset, callback_pt cb, void *pd);

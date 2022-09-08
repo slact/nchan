@@ -1156,7 +1156,7 @@ typedef struct {
   redis_node_command_stats_t *stats;
 } redis_stats_request_data_t;
 
-ngx_int_t memstore_ipc_broadcast_redis_stats_request(callback_pt cb, void *pd, void *nodeset, int *workers_count) {
+ngx_int_t memstore_ipc_broadcast_redis_stats_request(void *nodeset, callback_pt cb, void *pd) {
   redis_stats_request_data_t data;
   DEBUG_MEMZERO(&data);
   data.redis_nodeset = nodeset;
@@ -1201,7 +1201,8 @@ fail:
 }
 
 static void receive_redis_stats_reply(ngx_int_t sender, redis_stats_request_data_t *data) {
-  
+  data->cb(data->stats_count, data->stats, data->pd);
+  shm_free(nchan_store_memory_shmem, data->stats);
 }
 
 

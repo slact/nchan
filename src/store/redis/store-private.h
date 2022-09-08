@@ -25,11 +25,10 @@
 #define REDIS_LUA_HASH_LENGTH 40
 #define REDIS_NODESET_NOT_READY_MAX_RETRIES 2
 
-//OBSOLETE
-typedef struct {
-  unsigned         min:16;
-  unsigned         max:16;
-} redis_cluster_slot_range_t;
+extern redis_nodeset_t  redis_nodeset[NCHAN_MAX_NODESETS];
+extern int              redis_nodeset_count;
+extern char            *redis_worker_id;
+extern char            *nchan_redis_blankname;
 
 
 typedef struct rdstore_channel_head_s rdstore_channel_head_t;
