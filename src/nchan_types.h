@@ -48,6 +48,11 @@ typedef struct {
   unsigned                      enabled:1;
   void                         *nodeset;
   void                         *privdata;
+  
+  struct {
+    ngx_http_complex_value_t     *upstream_name;
+  }                             stats;
+  
 } nchan_redis_conf_t;
 
 typedef struct {

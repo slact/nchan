@@ -297,6 +297,7 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   lcf->redis.nostore_fastpublish = NGX_CONF_UNSET;
   lcf->redis.privdata = NULL;
   lcf->redis.nodeset = NULL;
+  lcf->redis.stats.upstream_name = NULL;
   
   lcf->request_handler = NULL;
   
@@ -345,6 +346,10 @@ static int is_group_location(nchan_loc_conf_t *lcf) {
   return lcf->group.get || lcf->group.set || lcf->group.delete;
 }
 
+static int is_redis_stats_location(nchan_loc_conf_t *lcf) {
+  return lcf->redis.stats.upstream_name != NULL;
+}
+
 static int is_valid_location(ngx_conf_t *cf, nchan_loc_conf_t *lcf) {
   
   if(is_group_location(lcf)) {
@@ -359,6 +364,15 @@ static int is_valid_location(ngx_conf_t *cf, nchan_loc_conf_t *lcf) {
     else if(is_sub_location(lcf)) {
       ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "Can't have a subscriber location and also be a group access location (nchan_group + nchan_subscriber)");
       return 0;
+    }
+    else if(is_redis_stats_location(lcf)) {
+      ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "Can't have a redis stats location and also be a group access location (nchan_group + nchan_subscriber)");
+      return 0;
+    }
+  }
+  if(is_redis_stats_location(lcf)) {
+    if (is_group_location(lcf) || is_sub_location(lcf) || is_pub_location(lcf)) {
+      ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "Can't have a redis stats location and also a group, publisher, or subscriber location.");
     }
   }
   return 1;
@@ -435,6 +449,8 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_bitmask_value(conf->group.delete, prev->group.delete, 0);
   
   ngx_conf_merge_value(conf->group.enable_accounting, prev->group.enable_accounting, 0);
+  
+  MERGE_CONF(conf, prev, redis.stats.upstream_name);
   
   //validate location
   if(!is_valid_location(cf, conf)) {
@@ -1654,6 +1670,19 @@ static char *ngx_conf_set_redis_upstream_pass(ngx_conf_t *cf, ngx_command_t *cmd
   return ngx_conf_set_redis_upstream(cf, &value[1], conf);
 }
 
+
+static char *nchan_redis_stats_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  nchan_loc_conf_t     *lcf = conf;
+  
+  ngx_http_set_complex_value_slot(cf, cmd, conf);
+  
+  if(!is_valid_location(cf, lcf)) {
+    return NGX_CONF_ERROR;
+  }
+  
+  lcf->request_handler = &nchan_redis_stats_handler;
+  return NGX_CONF_OK;
+}
 
 #include "nchan_config_commands.c" //hideous but hey, it works
 

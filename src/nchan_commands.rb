@@ -892,6 +892,17 @@ CfCmd.new do
       default: "30s",
       info: "A Redis-stored channel and its messages are removed from memory (local cache) after this timeout, provided there are no local subscribers."
   
+  nchan_redis_upstream_stats [:srv, :loc],
+      :nchan_redis_stats_directive,
+      [:loc_conf, :"redis.stats.upstream_name"],
+      args: 1,
+      
+      group: "storage",
+      tags: [ 'redis', 'meta', 'stats' ],
+      value: "<upstream_name>",
+      default: "(none)",
+      info: "Defines a location as redis statistics endpoint. GET requests to this location produce a JSON response with detailed listings of total Redis command times and number of calls, broken down by node and command type. USeful for making graphs about Redis performance."
+  
   nchan_message_timeout [:main, :srv, :loc], 
       :nchan_set_message_timeout, 
       [:loc_conf, :message_timeout],

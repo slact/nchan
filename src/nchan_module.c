@@ -327,17 +327,22 @@ static ngx_int_t redis_stats_callback(ngx_int_t rc, void *d, void *pd) {
 }
 
 ngx_int_t nchan_redis_stats_handler(ngx_http_request_t *r) {
-  ngx_str_t            *nodeset_name;
+  nchan_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
   
+  ngx_str_t             nodeset_name;
   
-  ngx_int_t             rc = redis_nodeset_global_command_stats_palloc_async(nodeset_name, r->pool, redis_stats_callback, r);
+  if(ngx_http_complex_value(r, cf->redis.stats.upstream_name, &nodeset_name) != NGX_OK) {
+    return NGX_HTTP_INTERNAL_SERVER_ERROR;
+  }
+  
+  ngx_int_t             rc = redis_nodeset_global_command_stats_palloc_async(&nodeset_name, r->pool, redis_stats_callback, r);
   ngx_str_t             content_type_plain = ngx_string("text/plain");
   
   switch(rc) {
     case NGX_ERROR:
       return NGX_HTTP_INTERNAL_SERVER_ERROR;
     case NGX_DECLINED:
-      nchan_respond_sprintf(r, NGX_HTTP_NOT_FOUND, &content_type_plain, 0, "Redis upstream \"%V\" not found", nodeset_name);
+      nchan_respond_sprintf(r, NGX_HTTP_NOT_FOUND, &content_type_plain, 0, "Redis upstream \"%V\" not found", &nodeset_name);
       return NGX_OK;
     default:
       return rc;
