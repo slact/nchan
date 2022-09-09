@@ -109,7 +109,7 @@ int nchan_timequeue_dequeue(nchan_timequeue_t *pq, int tag, ngx_msec_t *start_ti
     }
   }
   
-  return 0;
+  return 1;
 }
 
 void nchan_timequeue_destroy(nchan_timequeue_t *pq) {
