@@ -3706,7 +3706,7 @@ void node_command_time_finish(redis_node_t *node, redis_node_cmd_tag_t cmdtag) {
     return;
   }
   ngx_msec_t t = ngx_current_msec - start_time;
-  assert(cmdtag > 0 && cmdtag <= NCHAN_REDIS_CMD_OTHER);
+  assert(cmdtag >= 0 && cmdtag <= NCHAN_REDIS_CMD_OTHER));
   
   nchan_accumulator_update(&node->stats.timings[cmdtag], t);
 }

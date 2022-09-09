@@ -48,16 +48,28 @@ typedef struct {
 } nodeset_global_command_stats_state_t;
 
 
-static ngx_int_t redis_stats_request_callback(ngx_int_t rc, void *d, void *pd);
+static ngx_int_t redis_stats_request_callback(ngx_int_t statscount, void *d, void *pd);
+
+void stats_request_to_self(void *pd) {
+  nodeset_global_command_stats_state_t  *state = pd;
+  size_t                                 nodes_count;
+  redis_node_command_stats_t            *stats = redis_nodeset_worker_command_stats_alloc(state->ns, &nodes_count);
+  
+  redis_stats_request_callback(nodes_count, stats, pd);
+}
 
 ngx_int_t redis_nodeset_global_command_stats_palloc_async(ngx_str_t *nodeset_name, ngx_pool_t *pool, callback_pt cb, void *pd) {
   redis_nodeset_t  *ns = NULL;
   int i;
   for(i=0; i < redis_nodeset_count; i++) {
-    if(nchan_strmatch(nodeset_name, 1, ns->name)) {
+    if(nchan_strmatch(nodeset_name, 1, redis_nodeset[i].name)) {
       ns = &redis_nodeset[i];
       break;
     }
+  }
+  
+  if(ns == NULL) {
+    return NGX_DECLINED;
   }
   
   nodeset_global_command_stats_state_t *state = ngx_palloc(pool, sizeof(*state));
@@ -65,31 +77,19 @@ ngx_int_t redis_nodeset_global_command_stats_palloc_async(ngx_str_t *nodeset_nam
     return NGX_ERROR;
   }
   
-  if(ns == NULL) {
-    char *nsname_cstr = ngx_palloc(pool, nodeset_name->len + 1);
-    if(!nsname_cstr) {
-      state->stats.name = "";
-    }
-    else {
-      ngx_sprintf((u_char *)nsname_cstr, "%V%Z", nodeset_name);
-      state->stats.name = nsname_cstr;
-    }
-    
-    state->stats.error = "No Redis upstream configured with such name";
-    state->stats.stats = NULL;
-    
-    //TODO: communicate error to callback
-    
-    return NGX_OK;
-  }
-  
   ipc_t *ipc = nchan_memstore_get_ipc();
   
   state->waiting_for_reply_count = ipc->workers;
   state->stats.stats = NULL;
+  state->ns = ns;
   
+  if(memstore_ipc_broadcast_redis_stats_request(ns, redis_stats_request_callback, state) != NGX_OK) {
+    //ask other workers about it
+    return NGX_ERROR;
+  }
   
-  return memstore_ipc_broadcast_redis_stats_request(ns, redis_stats_request_callback, state);
+  nchan_add_oneshot_timer(stats_request_to_self, state, 0);
+  
 }
 
 static ngx_int_t redis_stats_request_callback(ngx_int_t statscount, void *d, void *pd) {
@@ -186,7 +186,11 @@ static int bufchain_add(ngx_pool_t *pool, ngx_chain_t **first, ngx_chain_t **las
 
 static int compare_nodestats_by_name(const void *v1, const void *v2) {
   redis_node_command_stats_t *s1 = v1, *s2 = v2;
-  return strcmp(s1->name, s2->name);
+  int ret = strcmp(s1->name, s2->name);
+  if(ret == 0) {
+    ret = strcmp(s1->id, s2->id);
+  }
+  return ret;
 }
 
 #define REDIS_NODE_STAT_FMT_ARGS(stat, cmdtag) \
