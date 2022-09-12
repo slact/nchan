@@ -763,6 +763,20 @@ static ngx_command_t  nchan_commands[] = {
     offsetof(nchan_loc_conf_t, redis.stats.upstream_name),
     NULL } ,
 
+  { ngx_string("nchan_redis_upstream_stats_enabled"),
+    NGX_HTTP_UPS_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_flag_slot,
+    NGX_HTTP_SRV_CONF_OFFSET,
+    offsetof(nchan_srv_conf_t, redis.stats.enabled),
+    NULL } ,
+
+  { ngx_string("nchan_redis_upstream_stats_disconnected_timeout"),
+    NGX_HTTP_UPS_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_flag_slot,
+    NGX_HTTP_SRV_CONF_OFFSET,
+    offsetof(nchan_srv_conf_t, redis.stats.max_detached_time_sec),
+    NULL } ,
+
   { ngx_string("nchan_message_timeout"),
     NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
     nchan_set_message_timeout,

@@ -1578,6 +1578,24 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: upstream  
   > Determines how subscriptions to Redis PUBSUB channels are distributed between master and slave nodes. The higher the number, the more likely that each node of that type will be chosen for each new channel. The weights for slave nodes are cumulative, so an equal 1:1 master:slave weight ratio with two slaves would have a 1/3 chance of picking a master, and 2/3 chance of picking one of the slaves. The weight must be a non-negative integer.    
 
+- **nchan_redis_upstream_stats** `<upstream_name>`  
+  arguments: 1  
+  default: `(none)`  
+  context: server, location  
+  > Defines a location as redis statistics endpoint. GET requests to this location produce a JSON response with detailed listings of total Redis command times and number of calls, broken down by node and command type. USeful for making graphs about Redis performance.    
+
+- **nchan_redis_upstream_stats_disconnected_timeout**  
+  arguments: 1  
+  default: `5m`  
+  context: upstream  
+  > Keep stats for disconnected nodes around for this long. Useful for tracking stats for nodes that have intermittent connectivity issues.    
+
+- **nchan_redis_upstream_stats_enabled**  
+  arguments: 1  
+  default: `<yes> if at least 1 redis stats location is configured, otherwise <no>`  
+  context: upstream  
+  > Gather Redis node command timings for this upstream    
+
 - **nchan_redis_url** `<redis-url>`  
   arguments: 1  
   default: `127.0.0.1:6379`  

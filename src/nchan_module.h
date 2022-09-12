@@ -43,6 +43,7 @@ extern ngx_module_t ngx_nchan_module;
 extern nchan_store_t *nchan_store;
 
 extern int nchan_stub_status_enabled;
+extern int nchan_redis_stats_enabled;
 
 ngx_int_t nchan_stub_status_handler(ngx_http_request_t *r);
 ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r);

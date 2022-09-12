@@ -203,6 +203,10 @@ struct redis_nodeset_s {
     ngx_msec_t                  cluster_max_failing_msec;
     ngx_int_t                   load_scripts_unconditionally;
     struct {
+      time_t                      max_detached_time_sec;
+      ngx_int_t                   enabled;
+    }                           node_stats;
+    struct {
       int                         count;
       nchan_redis_ip_range_t     *list;
     }                           blacklist;

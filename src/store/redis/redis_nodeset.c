@@ -546,6 +546,10 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
     
     ns->settings.accurate_subscriber_count = scf->redis.accurate_subscriber_count == NGX_CONF_UNSET ? 0 : scf->redis.accurate_subscriber_count;
     
+    ns->settings.node_stats.enabled = scf->redis.stats.enabled == NGX_CONF_UNSET ? nchan_redis_stats_enabled : scf->redis.stats.enabled;
+    
+    ns->settings.node_stats.max_detached_time_sec = scf->redis.stats.max_detached_time_sec == NGX_CONF_UNSET ? NCHAN_REDIS_DEFAULT_STATS_MAX_DETACHED_TIME_SEC : scf->redis.stats.max_detached_time_sec;
+    
     ns->settings.blacklist.count = scf->redis.blacklist_count;
     ns->settings.blacklist.list = scf->redis.blacklist;
     

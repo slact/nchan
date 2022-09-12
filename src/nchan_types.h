@@ -333,6 +333,10 @@ typedef struct {
       ngx_str_t                     username;
       ngx_str_t                     password;
       nchan_redis_tls_settings_t    tls;
+      struct {
+        ngx_int_t                     enabled;
+        time_t                        max_detached_time_sec;
+      }                             stats;
   }                               redis;
   nchan_loc_conf_t                *upstream_nchan_loc_conf;
 } nchan_srv_conf_t;

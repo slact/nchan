@@ -166,6 +166,10 @@ static void *nchan_create_srv_conf(ngx_conf_t *cf) {
   scf->redis.blacklist = NULL;
   scf->redis.tls.enabled = NGX_CONF_UNSET;
   scf->redis.tls.verify_certificate = NGX_CONF_UNSET;
+  
+  scf->redis.stats.enabled = NGX_CONF_UNSET;
+  scf->redis.stats.max_detached_time_sec = NGX_CONF_UNSET;
+  
   scf->upstream_nchan_loc_conf = NULL;
   return scf;
 }
@@ -197,6 +201,11 @@ static char *nchan_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_value(conf->redis.load_scripts_unconditionally, prev->redis.load_scripts_unconditionally, 0);
   
   ngx_conf_merge_value(conf->redis.accurate_subscriber_count, prev->redis.accurate_subscriber_count, 0);
+  
+  ngx_conf_merge_value(conf->redis.stats.enabled, prev->redis.stats.enabled, NGX_CONF_UNSET);
+  //default to unser to enable only if at least 1 stats location is configured
+  
+  ngx_conf_merge_value(conf->redis.stats.max_detached_time_sec, prev->redis.stats.max_detached_time_sec, NCHAN_REDIS_DEFAULT_STATS_MAX_DETACHED_TIME_SEC);
   
   ngx_conf_merge_value(conf->redis.master_weight, prev->redis.master_weight, 1);
   ngx_conf_merge_value(conf->redis.slave_weight, prev->redis.slave_weight, 1);
@@ -1679,6 +1688,8 @@ static char *nchan_redis_stats_directive(ngx_conf_t *cf, ngx_command_t *cmd, voi
   if(!is_valid_location(cf, lcf)) {
     return NGX_CONF_ERROR;
   }
+  
+  nchan_redis_stats_enabled = 1;
   
   lcf->request_handler = &nchan_redis_stats_handler;
   return NGX_CONF_OK;

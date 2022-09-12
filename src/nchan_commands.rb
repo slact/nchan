@@ -903,6 +903,24 @@ CfCmd.new do
       default: "(none)",
       info: "Defines a location as redis statistics endpoint. GET requests to this location produce a JSON response with detailed listings of total Redis command times and number of calls, broken down by node and command type. USeful for making graphs about Redis performance."
   
+  nchan_redis_upstream_stats_enabled [:upstream],
+      :ngx_conf_set_flag_slot,
+      [:srv_conf, :"redis.stats.enabled"],
+      args: 1,
+      group: "storage",
+      tags: ['redis'],
+      default: "<yes> if at least 1 redis stats location is configured, otherwise <no>",
+      info: "Gather Redis node command timings for this upstream"
+
+  nchan_redis_upstream_stats_disconnected_timeout [:upstream],
+      :ngx_conf_set_flag_slot,
+      [:srv_conf, :"redis.stats.max_detached_time_sec"],
+      args: 1,
+      group: "storage",
+      tags: ['redis'],
+      default: "5m",
+      info: "Keep stats for disconnected nodes around for this long. Useful for tracking stats for nodes that have intermittent connectivity issues."
+  
   nchan_message_timeout [:main, :srv, :loc], 
       :nchan_set_message_timeout, 
       [:loc_conf, :message_timeout],
