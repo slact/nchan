@@ -147,6 +147,9 @@ ngx_int_t nchan_list_empty(nchan_list_t *list) {
   return NGX_OK;
 }
 
+size_t nchan_list_count(nchan_list_t *list) {
+  return list->n;
+}
 
 ngx_int_t nchan_list_traverse_and_empty(nchan_list_t *list, void (*cb)(void *data, void *pd), void *pd) {
   nchan_list_el_t  *head = list->head, *el, *next;

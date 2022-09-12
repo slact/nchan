@@ -37,6 +37,8 @@ void *nchan_list_last(nchan_list_t *list);
 void *nchan_list_prev(void *data);
 void *nchan_list_next(void *data);
 
+size_t nchan_list_count(nchan_list_t *list);
+
 void *nchan_list_prepend_sized(nchan_list_t *list, size_t sz);
 void *nchan_list_append_sized(nchan_list_t *list, size_t sz);
 
