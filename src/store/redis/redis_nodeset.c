@@ -585,6 +585,8 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
     ns->settings.blacklist.list = NULL;
     ngx_str_t **urlref = nchan_list_append(&ns->urls);
     *urlref = rcf->url.len > 0 ? &rcf->url : &default_redis_url;
+    
+    
   }
   ns->current_reconnect_delay = 0;
   ns->current_cluster_recovery_delay = 0;
@@ -592,6 +594,8 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
   DBG("nodeset created");
   
   nodeset_set_name_alloc(ns);
+  
+  redis_nodeset_stats_init(ns);
   
   if(ns->settings.tls.enabled) {
     //if all the URLs are rediss://, then turn on SSL for the nodeset
@@ -1417,11 +1421,7 @@ static redis_node_t *nodeset_node_create_with_space(redis_nodeset_t *ns, redis_c
   node->ctx.pubsub = NULL;
   node->ctx.sync = NULL;
   
-  int i;
-  for(i=0; i<NCHAN_REDIS_CMD_OTHER; i++) {
-    nchan_accumulator_init(&node->stats.timings[i], ACCUMULATOR_SUM, 0);
-  }
-  nchan_timequeue_init(&node->stats.cmd_timequeue, 32);
+  redis_node_stats_init(node);
   
   assert(nodeset_node_find_by_connect_params(ns, rcp));
   return node;
@@ -1480,7 +1480,9 @@ ngx_int_t nodeset_node_destroy(redis_node_t *node) {
     nchan_abort_oneshot_timer(node->connect_timeout);
     node->connect_timeout = NULL;
   }
+  redis_node_stats_detach(node);
   nchan_list_remove(&node->nodeset->nodes, node);
+  
   return NGX_OK;
 }
 
@@ -3460,6 +3462,7 @@ ngx_int_t nodeset_destroy_all(void) {
   for(i=0; i<redis_nodeset_count; i++) {
     ns = &redis_nodeset[i];
     nodeset_disconnect(ns);
+    redis_nodeset_stats_destroy(ns);
     if(ns->name && ns->name != nchan_redis_blankname) {
       ngx_free(ns->name);
     }
@@ -3700,20 +3703,7 @@ redis_node_t *nodeset_node_pubsub_find_by_chanhead(void *chan) {
   return ch->redis.node.pubsub;
 }
 
-void node_command_time_start(redis_node_t *node, redis_node_cmd_tag_t cmdtag) {
-  nchan_timequeue_queue(&node->stats.cmd_timequeue, cmdtag);
-}
-void node_command_time_finish(redis_node_t *node, redis_node_cmd_tag_t cmdtag) {
-  ngx_msec_t start_time;
-  if(!nchan_timequeue_dequeue(&node->stats.cmd_timequeue, cmdtag, &start_time)) {
-    node_log_error(node, "CMDTAG didn't match when recording command time -- or another problem");
-    return;
-  }
-  ngx_msec_t t = ngx_current_msec - start_time;
-  assert(cmdtag >= 0 && cmdtag <= NCHAN_REDIS_CMD_OTHER));
-  
-  nchan_accumulator_update(&node->stats.timings[cmdtag], t);
-}
+
 
 /*
  * Copyright 2001-2010 Georges Menie (www.menie.org)

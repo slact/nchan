@@ -150,9 +150,12 @@ typedef enum {
 } redis_node_cmd_tag_t;
 
 typedef struct {
-  nchan_accumulator_t timings[NCHAN_REDIS_CMD_OTHER+1];
-  nchan_timequeue_t   cmd_timequeue;
-} nchan_redis_command_stats_t;
+  char                         name[128];
+  char                         id[65];
+  unsigned                     attached:1;
+  time_t                       detached_time; //when did you first stop using?
+  nchan_accumulator_t          timings[NCHAN_REDIS_CMD_OTHER+1];
+} redis_node_command_stats_t;
 
 #define NODESET_MAX_STATUS_MSG_LENGTH 512
 struct redis_nodeset_s {
@@ -176,6 +179,11 @@ struct redis_nodeset_s {
   ngx_http_upstream_srv_conf_t *upstream;
   nchan_list_t                nodes;
   redis_nodeset_cluster_t     cluster;
+  struct {
+    unsigned                    active:1;
+    ngx_event_t                 cleanup_timer;
+    nchan_list_t                list;
+  }                           node_stats;
   unsigned                    use_spublish:1;
   struct {                    //settings
     nchan_redis_storage_mode_t  storage_mode;
@@ -225,8 +233,6 @@ struct redis_nodeset_s {
     nchan_slist_t               disconnected_pubsub;
   }                           channels;
   
-  nchan_redis_command_stats_t  stats;
-  
   nchan_reaper_t              chanhead_reaper;
   nchan_list_t                onready_callbacks;
   char                        status_msg[NODESET_MAX_STATUS_MSG_LENGTH];
@@ -275,7 +281,10 @@ struct redis_node_s {
     redisAsyncContext         *pubsub;
     redisContext              *sync;
   }                         ctx;
-  nchan_redis_command_stats_t  stats;
+  struct {
+    redis_node_command_stats_t *data;
+    nchan_timequeue_t         timequeue;
+  }                         stats;
   int                       pending_commands;
   struct {
     long long                 sent;
@@ -397,11 +406,7 @@ uint16_t redis_crc16(uint16_t crc, const char *buf, int len);
 
 const char *node_nickname_cstr(redis_node_t *node);
 
-typedef struct {
-  char                         name[128];
-  char                         id[65];
-  nchan_accumulator_t          timings[NCHAN_REDIS_CMD_OTHER+1];
-} redis_node_command_stats_t;
+
 
 typedef struct {
   char                        *error;
@@ -412,6 +417,19 @@ typedef struct {
 
 redis_node_command_stats_t *redis_nodeset_worker_command_stats_alloc(redis_nodeset_t *ns, size_t *node_stats_count);
 ngx_int_t redis_nodeset_global_command_stats_palloc_async(ngx_str_t *nodeset_name, ngx_pool_t *pool, callback_pt cb, void *pd);
+
+
+int redis_nodeset_stats_init(redis_nodeset_t *ns);
+void redis_nodeset_stats_destroy(redis_nodeset_t *ns);
+void redis_node_stats_init(redis_node_t *node);
+redis_node_command_stats_t *redis_node_stats_attach(redis_node_t *node);
+void redis_node_stats_detach(redis_node_t *node);
+redis_node_command_stats_t *redis_node_get_stats(redis_node_t *node);
+
+
+void node_command_time_start(redis_node_t *node, redis_node_cmd_tag_t cmdtag);
+void node_command_time_finish(redis_node_t *node, redis_node_cmd_tag_t cmdtag);
+
 ngx_chain_t *redis_nodeset_stats_response_body_chain_palloc(redis_nodeset_command_stats_t *nstats , ngx_pool_t *pool);
   
 #endif /* NCHAN_REDIS_NODESET_H */

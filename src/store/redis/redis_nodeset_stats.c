@@ -9,25 +9,25 @@
 #include <store/memory/ipc-handlers.h>
 
 redis_node_command_stats_t *redis_nodeset_worker_command_stats_alloc(redis_nodeset_t *ns, size_t *node_stats_count) {
-  int numnodes = 0;
-  redis_node_t *node;
-  for(node = nchan_list_first(&ns->nodes); node != NULL; node = nchan_list_next(node)) {
-    numnodes++;
+  if(!ns->node_stats.active) {
+    *node_stats_count = 0;
+    return NULL;
   }
-  
-  redis_node_command_stats_t *stats = ngx_alloc(sizeof(*stats) * numnodes, ngx_cycle->log);
+  int numstats = nchan_list_count(&ns->node_stats.list);
+  *node_stats_count = numstats;
+  redis_node_command_stats_t *stats = ngx_alloc(sizeof(*stats) * numstats, ngx_cycle->log);
   if(!stats) {
     return NULL;
   }
-  
+    
   int i=0;
-  for(node = nchan_list_first(&ns->nodes); node != NULL; node = nchan_list_next(node)) {
-    ngx_snprintf((u_char *)stats[i].name, sizeof(stats[i].name), "%s%Z", node_nickname_cstr(node));
-    ngx_snprintf((u_char *)stats[i].id, sizeof(stats[i].name), "%V%Z", node->cluster.enabled ? &node->cluster.master_id : &node->run_id);
-    memcpy(stats[i].timings, node->stats.timings, sizeof(node->stats.timings));
+  redis_node_command_stats_t *cur;
+  for(cur = nchan_list_first(&ns->node_stats.list); cur != NULL; cur = nchan_list_next(cur)) {
+    assert(i<numstats);
+    stats[i] = *cur;
+    i++;
   }
   
-  *node_stats_count = numnodes;
   return stats;
 }
 
@@ -50,12 +50,12 @@ typedef struct {
 
 static ngx_int_t redis_stats_request_callback(ngx_int_t statscount, void *d, void *pd);
 
-void stats_request_to_self(void *pd) {
+static void stats_request_to_self(void *pd) {
   nodeset_global_command_stats_state_t  *state = pd;
-  size_t                                 nodes_count;
-  redis_node_command_stats_t            *stats = redis_nodeset_worker_command_stats_alloc(state->ns, &nodes_count);
+  size_t                                 stats_count;
+  redis_node_command_stats_t            *stats = redis_nodeset_worker_command_stats_alloc(state->ns, &stats_count);
   
-  redis_stats_request_callback(nodes_count, stats, pd);
+  redis_stats_request_callback(stats_count, stats, pd);
 }
 
 ngx_int_t redis_nodeset_global_command_stats_palloc_async(ngx_str_t *nodeset_name, ngx_pool_t *pool, callback_pt cb, void *pd) {
@@ -89,7 +89,7 @@ ngx_int_t redis_nodeset_global_command_stats_palloc_async(ngx_str_t *nodeset_nam
   }
   
   nchan_add_oneshot_timer(stats_request_to_self, state, 0);
-  
+  return NGX_DONE;
 }
 
 static ngx_int_t redis_stats_request_callback(ngx_int_t statscount, void *d, void *pd) {
@@ -205,7 +205,7 @@ ngx_chain_t *redis_nodeset_stats_response_body_chain_palloc(redis_nodeset_comman
   cstrbuf[4095]='\0'; //just in case the sprintf output is 4095 chars long
   
   char *open_fmtstr = "{\n"
-                      "  \"upstream\": \"%s\"\n"
+                      "  \"upstream\": \"%s\",\n"
                       "  \"nodes\": [\n";
   
   snprintf(cstrbuf, 4095, open_fmtstr, nstats->name);
@@ -216,63 +216,63 @@ ngx_chain_t *redis_nodeset_stats_response_body_chain_palloc(redis_nodeset_comman
   qsort(nstats->stats, nstats->count, sizeof(*nstats->stats), compare_nodestats_by_name);
   
   char *nodestat_fmtstr = "    {\n"
-                          "      \"address\"        : \"%s\"\n"
+                          "      \"address\"        : \"%s\",\n"
                           "      \"id\"             : \"%s\"\n"
                           "      \"command_totals\" : {\n"
                           "        \"connect\"    : {\n"
-                          "          \"msec\"     : %u\n"
+                          "          \"msec\"     : %u,\n"
                           "          \"times\"    : %u\n"
                           "        },\n"
                           "        \"pubsub_subscribe\": {\n"
-                          "          \"msec\"     : %u\n"
+                          "          \"msec\"     : %u,\n"
                           "          \"times\"    : %u\n"
                           "        },\n"
                           "        \"pubsub_unsubsribe\": {\n"
-                          "          \"msec\"     : %u\n"
+                          "          \"msec\"     : %u,\n"
                           "          \"times\"    : %u\n"
                           "        },\n"
                           "        \"channel_change_subscriber_count\": {\n"
-                          "          \"msec\"     : %u\n"
+                          "          \"msec\"     : %u,\n"
                           "          \"times\"    : %u\n"
                           "        },\n"
                           "        \"channel_delete\": {\n"
-                          "          \"msec\"     : %u\n"
+                          "          \"msec\"     : %u,\n"
                           "          \"times\"    : %u\n"
                           "        },\n"
                           "        \"channel_find\": {\n"
-                          "          \"msec\"     : %u\n"
+                          "          \"msec\"     : %u,\n"
                           "          \"times\"    : %u\n"
                           "        },\n"
                           "        \"channel_get_message\": {\n"
-                          "          \"msec\"     : %u\n"
+                          "          \"msec\"     : %u,\n"
                           "          \"times\"    : %u\n"
                           "        },\n"
                           "        \"channel_get_large_message\": {\n"
-                          "          \"msec\"     : %u\n"
+                          "          \"msec\"     : %u,\n"
                           "          \"times\"    : %u\n"
                           "        },\n"
                           "        \"channel_publish_message\": {\n"
-                          "          \"msec\"     : %u\n"
+                          "          \"msec\"     : %u,\n"
                           "          \"times\"    : %u\n"
                           "        },\n"
                           "        \"channel_request_subscriber_info\": {\n"
-                          "          \"msec\"     : %u\n"
+                          "          \"msec\"     : %u,\n"
                           "          \"times\"    : %u\n"
                           "        },\n"
                           "        \"channel_get_subscriber_info_id\": {\n"
-                          "          \"msec\"     : %u\n"
+                          "          \"msec\"     : %u,\n"
                           "          \"times\"    : %u\n"
                           "        },\n"
                           "        \"channel_subscribe\": {\n"
-                          "          \"msec\"     : %u\n"
+                          "          \"msec\"     : %u,\n"
                           "          \"times\"    : %u\n"
                           "        },\n"
                           "        \"channel_unsubscribe\": {\n"
-                          "          \"msec\"     : %u\n"
+                          "          \"msec\"     : %u,\n"
                           "          \"times\"    : %u\n"
                           "        },\n"
                           "        \"other\"      : {\n"
-                          "          \"msec\"     : %u\n"
+                          "          \"msec\"     : %u,\n"
                           "          \"times\"    : %u\n"
                           "        }\n"
                           "      }\n"
@@ -306,4 +306,171 @@ ngx_chain_t *redis_nodeset_stats_response_body_chain_palloc(redis_nodeset_comman
   }
   
   return first;
+}
+
+static void nodeset_node_stats_cleanup_handler(ngx_event_t *ev) {
+  redis_nodeset_t *ns = ev->data;
+  
+  if(!ev->timedout) {
+    return;
+  }
+  int pending_removal = 0;
+  redis_node_command_stats_t *stats, *next;
+  for(stats = nchan_list_first(&ns->node_stats.list); stats != NULL; stats = next) {
+    next = nchan_list_next(stats);
+    if(stats->attached) {
+      continue;
+    }
+    if(ngx_time() - stats->detached_time > ns->settings.node_stats.max_detached_time_sec) {
+      nchan_list_remove(&ns->node_stats.list, stats);
+    }
+    else {
+      pending_removal++;
+    }
+  }
+  
+  if(pending_removal > 0) {
+    ngx_add_timer(ev, ns->settings.node_stats.max_detached_time_sec*1000);
+  }
+}
+
+int redis_nodeset_stats_init(redis_nodeset_t *ns) {
+  if(!ns->settings.node_stats.enabled) {
+    //nothing to init, no errors either
+    ns->node_stats.active = 0;
+    return 1;
+  }
+  if(nchan_list_init(&ns->node_stats.list, sizeof(redis_node_command_stats_t), "node stats") != NGX_OK) {
+    return 0;
+  }
+  if(nchan_init_timer(&ns->node_stats.cleanup_timer, nodeset_node_stats_cleanup_handler, ns) != NGX_OK) {
+    return 0;
+  }
+  ns->node_stats.active = 1;
+  return 1;
+}
+
+void redis_nodeset_stats_destroy(redis_nodeset_t *ns) {
+  if(!ns->node_stats.active) {
+    return;
+  }
+  if(ns->node_stats.cleanup_timer.timer_set) {
+    ngx_del_timer(&ns->node_stats.cleanup_timer);
+  }
+  nchan_list_empty(&ns->node_stats.list);
+}
+
+void redis_node_stats_init(redis_node_t *node) {
+  nchan_timequeue_init(&node->stats.timequeue, 32);
+  node->stats.data = NULL;
+}
+
+redis_node_command_stats_t *redis_node_stats_attach(redis_node_t *node) {
+  redis_nodeset_t *ns = node->nodeset;
+  if(!ns->node_stats.active) {
+    return NULL;
+  }
+  if(node->stats.data) {
+    //already attached
+    return node->stats.data;
+  }
+  
+  char          *name = node_nickname_cstr(node);
+  ngx_str_t     *id = node->cluster.enabled ? &node->cluster.master_id : &node->run_id;
+  
+  redis_node_command_stats_t *stats;
+  for(stats = nchan_list_first(&ns->node_stats.list); stats != NULL; stats = nchan_list_next(stats)) {
+    if(stats->attached) {
+      continue;
+    }
+    
+    if(id->len > 0) {
+      if(nchan_strmatch(id, 1, stats->id)) {
+        //we got it
+        break;
+      }
+    }
+    else if(strcmp(name, stats->name) == 0) {
+      //match by name
+      break;
+    }
+  }
+  
+  if(!stats) {
+    //create new stats entry
+    stats = nchan_list_append(&ns->node_stats.list);
+    if(!stats) {
+      node_log_error(node, "Failed to create stats data");
+      return NULL;
+    }
+    ngx_snprintf((u_char *)stats->id, sizeof(stats->id), "%V%Z", id);
+    ngx_snprintf((u_char *)stats->name, sizeof(stats->name), "%s%Z", name);
+    stats->attached = 0;
+    stats->detached_time = 0;
+    
+    int i;
+    for(i=0; i<NCHAN_REDIS_CMD_OTHER; i++) {
+      nchan_accumulator_init(&stats->timings[i], ACCUMULATOR_SUM, 0);
+    }
+  }
+  
+  assert(!stats->attached);
+  stats->attached = 1;
+  node->stats.data = stats;
+  return stats;
+}
+
+void redis_node_stats_detach(redis_node_t *node) {
+  redis_node_command_stats_t *stats = node->stats.data;
+  redis_nodeset_t            *ns = node->nodeset;
+  if (!ns->node_stats.active || stats == NULL) {
+    //not attached
+    return;
+  }
+  
+  node->stats.data = NULL;
+  
+  stats->attached = 0;
+  stats->detached_time = ngx_time();
+  
+  if(!ns->node_stats.cleanup_timer.timer_set) {
+    ngx_add_timer(&ns->node_stats.cleanup_timer, ns->settings.node_stats.max_detached_time_sec*1000);
+  }
+}
+
+redis_node_command_stats_t *redis_node_get_stats(redis_node_t *node) {
+  if(node->stats.data) {
+    return node->stats.data;
+  }
+  
+  return redis_node_stats_attach(node);
+}
+
+void node_command_time_start(redis_node_t *node, redis_node_cmd_tag_t cmdtag) {
+  if(!node->nodeset->node_stats.active) {
+    return;
+  }
+  
+  nchan_timequeue_queue(&node->stats.timequeue, cmdtag);
+}
+
+void node_command_time_finish(redis_node_t *node, redis_node_cmd_tag_t cmdtag) {
+  if(!node->nodeset->node_stats.active) {
+    return;
+  }
+  
+  ngx_msec_t start_time;
+  if(!nchan_timequeue_dequeue(&node->stats.timequeue, cmdtag, &start_time)) {
+    node_log_error(node, "CMDTAG didn't match when recording command time -- or another problem");
+    return;
+  }
+  ngx_msec_t t = ngx_current_msec - start_time;
+  assert(cmdtag >= 0 && cmdtag <= NCHAN_REDIS_CMD_OTHER);
+  
+  redis_node_command_stats_t *stats = redis_node_get_stats(node);
+  if(stats == NULL) {
+    node_log_error(node, "Unable to find stats data for node. cannot record command timing");
+    return;
+  }
+  nchan_accumulator_update(&stats->timings[cmdtag], t);
 }
