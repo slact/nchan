@@ -56,6 +56,7 @@ static void stats_request_to_self(void *pd) {
   redis_node_command_stats_t            *stats = redis_nodeset_worker_command_stats_alloc(state->ns, &stats_count);
   
   redis_stats_request_callback(stats_count, stats, pd);
+  ngx_free(stats);
 }
 
 ngx_int_t redis_nodeset_global_command_stats_palloc_async(ngx_str_t *nodeset_name, ngx_pool_t *pool, callback_pt cb, void *pd) {
@@ -81,7 +82,13 @@ ngx_int_t redis_nodeset_global_command_stats_palloc_async(ngx_str_t *nodeset_nam
   
   state->waiting_for_reply_count = ipc->workers;
   state->stats.stats = NULL;
+  state->stats.count = 0;
+  state->stats.error = NULL;
+  state->stats.name = ns->name;
   state->ns = ns;
+  state->pool = pool;
+  state->cb = cb;
+  state->pd = pd;
   
   if(memstore_ipc_broadcast_redis_stats_request(ns, redis_stats_request_callback, state) != NGX_OK) {
     //ask other workers about it
@@ -102,11 +109,24 @@ static ngx_int_t redis_stats_request_callback(ngx_int_t statscount, void *d, voi
   unsigned i, j;
   redis_node_command_stats_t *src, *dst;
   
+  if(stats == NULL && stats_count > 0) {
+    state->stats.error = "Unable to allocate memory for redis server stats";
+    state->stats.count = 0;
+    stats_count = 0;
+  }
+  
   for(i=0; i < stats_count; i++) {
     src = &stats[i];
     dst = NULL;
     for(j=0; j < state->stats.count; j++) {
-      if(strstr(stats[i].id, state->stats.stats[j].id) == 0) {
+      if(strlen(stats[i].id) == 0) {
+        if(strcmp(stats[i].name, state->stats.stats[j].name) == 0) {
+          //no id, but the names match
+          dst = &state->stats.stats[j];
+          break;
+        }
+      }
+      else if(strcmp(stats[i].id, state->stats.stats[j].id) == 0) {
         dst = &state->stats.stats[j];
         break;
       }
@@ -132,7 +152,7 @@ static ngx_int_t redis_stats_request_callback(ngx_int_t statscount, void *d, voi
     if(state->stats.stats && state->stats.count > 0) {
       redis_node_command_stats_t            *stats_in_pool = ngx_palloc(state->pool, sizeof(*stats_in_pool) * state->stats.count);
       if(!stats_in_pool) {
-        state->stats.error = "Unable to allcoate memory for redis server stats";
+        state->stats.error = "Unable to allocate memory for redis server stats response";
         state->stats.count = 0;
         free(state->stats.stats);
         state->stats.stats = NULL;
@@ -217,7 +237,7 @@ ngx_chain_t *redis_nodeset_stats_response_body_chain_palloc(redis_nodeset_comman
   
   char *nodestat_fmtstr = "    {\n"
                           "      \"address\"        : \"%s\",\n"
-                          "      \"id\"             : \"%s\"\n"
+                          "      \"id\"             : \"%s\",\n"
                           "      \"command_totals\" : {\n"
                           "        \"connect\"    : {\n"
                           "          \"msec\"     : %u,\n"
@@ -294,6 +314,7 @@ ngx_chain_t *redis_nodeset_stats_response_body_chain_palloc(redis_nodeset_comman
              REDIS_NODE_STAT_FMT_ARGS(stat, CHANNEL_GET_SUBSCRIBER_INFO_ID),
              REDIS_NODE_STAT_FMT_ARGS(stat, CHANNEL_SUBSCRIBE),
              REDIS_NODE_STAT_FMT_ARGS(stat, CHANNEL_UNSUBSCRIBE),
+             REDIS_NODE_STAT_FMT_ARGS(stat, OTHER),
              i + 1 < nstats->count ? "," : ""
     );
     if(!bufchain_add(pool, &first, &last, cstrbuf)) {
@@ -305,6 +326,9 @@ ngx_chain_t *redis_nodeset_stats_response_body_chain_palloc(redis_nodeset_comman
     return NULL;
   }
   
+  last->buf->last_in_chain = 1;
+  last->buf->last_buf = 1;
+  last->buf->flush = 1;
   return first;
 }
 
@@ -365,6 +389,10 @@ void redis_node_stats_init(redis_node_t *node) {
   node->stats.data = NULL;
 }
 
+void redis_node_stats_destroy(redis_node_t *node) {
+  nchan_timequeue_destroy(&node->stats.timequeue);
+}
+
 redis_node_command_stats_t *redis_node_stats_attach(redis_node_t *node) {
   redis_nodeset_t *ns = node->nodeset;
   if(!ns->node_stats.active) {
@@ -376,7 +404,7 @@ redis_node_command_stats_t *redis_node_stats_attach(redis_node_t *node) {
   }
   
   char          *name = node_nickname_cstr(node);
-  ngx_str_t     *id = node->cluster.enabled ? &node->cluster.master_id : &node->run_id;
+  ngx_str_t     *id = node->cluster.enabled ? &node->cluster.id : &node->run_id;
   
   redis_node_command_stats_t *stats;
   for(stats = nchan_list_first(&ns->node_stats.list); stats != NULL; stats = nchan_list_next(stats)) {
@@ -409,7 +437,7 @@ redis_node_command_stats_t *redis_node_stats_attach(redis_node_t *node) {
     stats->detached_time = 0;
     
     int i;
-    for(i=0; i<NCHAN_REDIS_CMD_OTHER; i++) {
+    for(i=0; i<=NCHAN_REDIS_CMD_OTHER; i++) {
       nchan_accumulator_init(&stats->timings[i], ACCUMULATOR_SUM, 0);
     }
   }

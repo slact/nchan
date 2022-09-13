@@ -1480,7 +1480,8 @@ ngx_int_t nodeset_node_destroy(redis_node_t *node) {
     nchan_abort_oneshot_timer(node->connect_timeout);
     node->connect_timeout = NULL;
   }
-  redis_node_stats_detach(node);
+  
+  redis_node_stats_destroy(node);
   nchan_list_remove(&node->nodeset->nodes, node);
   
   return NGX_OK;
@@ -1814,6 +1815,8 @@ int node_disconnect(redis_node_t *node, int disconnected_state) {
       cur->status = NOTREADY;
     }
   }
+  
+  redis_node_stats_detach(node);
   
   return 1;
 }

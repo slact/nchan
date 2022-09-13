@@ -424,6 +424,7 @@ void redis_nodeset_stats_destroy(redis_nodeset_t *ns);
 void redis_node_stats_init(redis_node_t *node);
 redis_node_command_stats_t *redis_node_stats_attach(redis_node_t *node);
 void redis_node_stats_detach(redis_node_t *node);
+void redis_node_stats_destroy(redis_node_t *node);
 redis_node_command_stats_t *redis_node_get_stats(redis_node_t *node);
 
 

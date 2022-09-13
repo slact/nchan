@@ -316,7 +316,7 @@ static ngx_int_t redis_stats_callback(ngx_int_t rc, void *d, void *pd) {
   }
   
   ngx_chain_t *body = redis_nodeset_stats_response_body_chain_palloc(stats, r->pool);
-  if(body) {
+  if(!body) {
     nchan_respond_cstring(r, NGX_HTTP_INTERNAL_SERVER_ERROR, &content_type_plain, "failed to allocate response body", 1);
     return NGX_OK;
   }
@@ -328,6 +328,11 @@ static ngx_int_t redis_stats_callback(ngx_int_t rc, void *d, void *pd) {
 
 ngx_int_t nchan_redis_stats_handler(ngx_http_request_t *r) {
   nchan_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
+  nchan_request_ctx_t    *ctx;
+  if((ctx = ngx_pcalloc(r->pool, sizeof(nchan_request_ctx_t))) == NULL) {
+    return NGX_HTTP_INTERNAL_SERVER_ERROR;
+  }
+  ngx_http_set_ctx(r, ctx, ngx_nchan_module);
   
   ngx_str_t             nodeset_name;
   
@@ -338,12 +343,18 @@ ngx_int_t nchan_redis_stats_handler(ngx_http_request_t *r) {
   ngx_int_t             rc = redis_nodeset_global_command_stats_palloc_async(&nodeset_name, r->pool, redis_stats_callback, r);
   ngx_str_t             content_type_plain = ngx_string("text/plain");
   
+  
+  ctx->request_ran_content_handler = 1;
+  
   switch(rc) {
     case NGX_ERROR:
       return NGX_HTTP_INTERNAL_SERVER_ERROR;
     case NGX_DECLINED:
       nchan_respond_sprintf(r, NGX_HTTP_NOT_FOUND, &content_type_plain, 0, "Redis upstream \"%V\" not found", &nodeset_name);
       return NGX_OK;
+    case NGX_DONE:
+      r->main->count++; //hold that request!
+      return NGX_DONE;
     default:
       return rc;
   }
