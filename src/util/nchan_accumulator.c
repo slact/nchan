@@ -23,7 +23,7 @@ int nchan_accumulator_init(nchan_accumulator_t *acc, nchan_accumulator_type_t ty
     default:
       return 0;
   }
-  
+  ngx_memzero(&acc->last_update, sizeof(acc->last_update));
   acc->type = type;
   
   return 1;
@@ -73,8 +73,8 @@ int nchan_accumulator_update(nchan_accumulator_t *acc, double val) {
       acc->data.ed_float.weight += 1;
       break;
     case ACCUMULATOR_SUM:
-      acc->data.ed_float.value += val;
-      acc->data.ed_float.weight += 1;
+      acc->data.sum.value += val;
+      acc->data.sum.weight += 1;
       break;
     default:
       //not supported yet
@@ -170,7 +170,7 @@ int nchan_accumulator_merge(nchan_accumulator_t *dst, nchan_accumulator_t *src) 
     
     case ACCUMULATOR_SUM:
       dst->data.sum.value += src->data.sum.value;
-      src->data.sum.weight += src->data.sum.weight;
+      dst->data.sum.weight += src->data.sum.weight;
       return 1;
     
     default:
