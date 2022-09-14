@@ -37,6 +37,7 @@ static nchan_timequeue_page_t *timequeue_page_enqueue(nchan_timequeue_t *pq) {
   if(!pq->first) {
     pq->first = nextpage;
   }
+  pq->last = nextpage;
   
   return nextpage;
 }
