@@ -283,7 +283,10 @@ struct redis_node_s {
   }                         ctx;
   struct {
     redis_node_command_stats_t *data;
-    nchan_timequeue_t         timequeue;
+    struct {         
+      nchan_timequeue_t       cmd;
+      nchan_timequeue_t       pubsub;
+    }                       timequeue;
   }                         stats;
   int                       pending_commands;
   struct {
@@ -407,6 +410,8 @@ uint16_t redis_crc16(uint16_t crc, const char *buf, int len);
 const char *node_nickname_cstr(redis_node_t *node);
 
 
+#define REDIS_NODE_CMD_TIMEQUEUE_LENGTH 64
+#define REDIS_NODE_PUBSUB_TIMEQUEUE_LENGTH 64
 
 typedef struct {
   char                        *error;

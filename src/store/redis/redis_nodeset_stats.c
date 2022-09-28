@@ -385,12 +385,14 @@ void redis_nodeset_stats_destroy(redis_nodeset_t *ns) {
 }
 
 void redis_node_stats_init(redis_node_t *node) {
-  nchan_timequeue_init(&node->stats.timequeue, 32);
+  nchan_timequeue_init(&node->stats.timequeue.cmd, REDIS_NODE_CMD_TIMEQUEUE_LENGTH);
+  nchan_timequeue_init(&node->stats.timequeue.pubsub, REDIS_NODE_PUBSUB_TIMEQUEUE_LENGTH);
   node->stats.data = NULL;
 }
 
 void redis_node_stats_destroy(redis_node_t *node) {
-  nchan_timequeue_destroy(&node->stats.timequeue);
+  nchan_timequeue_destroy(&node->stats.timequeue.cmd);
+  nchan_timequeue_destroy(&node->stats.timequeue.pubsub);
 }
 
 redis_node_command_stats_t *redis_node_stats_attach(redis_node_t *node) {
@@ -474,26 +476,10 @@ redis_node_command_stats_t *redis_node_get_stats(redis_node_t *node) {
   return redis_node_stats_attach(node);
 }
 
-void node_command_time_start(redis_node_t *node, redis_node_cmd_tag_t cmdtag) {
+void node_time_record(redis_node_t *node, redis_node_cmd_tag_t cmdtag, ngx_msec_t t) {
   if(!node->nodeset->node_stats.active) {
     return;
   }
-  
-  nchan_timequeue_queue(&node->stats.timequeue, cmdtag);
-}
-
-void node_command_time_finish(redis_node_t *node, redis_node_cmd_tag_t cmdtag) {
-  if(!node->nodeset->node_stats.active) {
-    return;
-  }
-  
-  ngx_msec_t start_time;
-  if(!nchan_timequeue_dequeue(&node->stats.timequeue, cmdtag, &start_time)) {
-    node_log_error(node, "CMDTAG didn't match when recording command time -- or another problem");
-    return;
-  }
-  ngx_msec_t t = ngx_current_msec - start_time;
-  assert(cmdtag >= 0 && cmdtag <= NCHAN_REDIS_CMD_OTHER);
   
   redis_node_command_stats_t *stats = redis_node_get_stats(node);
   if(stats == NULL) {
@@ -501,4 +487,58 @@ void node_command_time_finish(redis_node_t *node, redis_node_cmd_tag_t cmdtag) {
     return;
   }
   nchan_accumulator_update(&stats->timings[cmdtag], t);
+}
+
+static void node_time_start(redis_node_t *node, nchan_timequeue_t *tq, redis_node_cmd_tag_t cmdtag) {
+  if(!node->nodeset->node_stats.active) {
+    return;
+  }
+  
+  assert(&node->stats.timequeue.cmd == tq || &node->stats.timequeue.pubsub == tq);
+  nchan_timequeue_queue(tq, cmdtag);
+}
+
+void node_command_time_start(redis_node_t *node, redis_node_cmd_tag_t cmdtag) {
+  node_time_start(node, &node->stats.timequeue.cmd, cmdtag);
+}
+
+void node_pubsub_time_start(redis_node_t *node, redis_node_cmd_tag_t cmdtag) {
+  node_time_start(node, &node->stats.timequeue.pubsub, cmdtag);
+}
+
+static void node_time_finish(redis_node_t *node, nchan_timequeue_t *tq, redis_node_cmd_tag_t cmdtag, int care_about_tag) {
+  if(!node->nodeset->node_stats.active) {
+    return;
+  }
+  
+  assert(&node->stats.timequeue.cmd == tq || &node->stats.timequeue.pubsub == tq);
+  int tag_mismatch;
+  ngx_msec_t start_time;
+  if(!nchan_timequeue_dequeue(tq, cmdtag, &start_time, &tag_mismatch)) {
+    if(care_about_tag && tag_mismatch) {
+      node_log_error(node, "CMDTAG didn't match when recording command time");
+      return;
+    }
+    else if(
+    return;
+  }
+  ngx_msec_t t = ngx_current_msec - start_time;
+  assert(cmdtag >= 0 && cmdtag <= NCHAN_REDIS_CMD_OTHER);
+  
+  node_time_record(node, cmdtag, t);
+}
+
+void node_command_time_finish(redis_node_t *node, redis_node_cmd_tag_t cmdtag) {
+  node_time_finish(node, &node->stats.timequeue.cmd, cmdtag, 1);
+}
+
+void node_pubsub_time_finish(redis_node_t *node, redis_node_cmd_tag_t cmdtag) {
+  node_time_finish(node, &node->stats.timequeue.pubsub, cmdtag, 1);
+}
+
+void node_command_time_finish_anytag(redis_node_t *node, redis_node_cmd_tag_t cmdtag) {
+  node_time_finish(node, &node->stats.timequeue.cmd, cmdtag, 0);
+}
+void node_pubsub_time_finish_anytag(redis_node_t *node, redis_node_cmd_tag_t cmdtag) {
+  node_time_finish(node, &node->stats.timequeue.pubsub, cmdtag, 0);
 }

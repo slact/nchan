@@ -68,6 +68,7 @@ static nchan_timequeue_page_t *timequeue_get_nonfull_page(nchan_timequeue_t *pq)
 int nchan_timequeue_queue(nchan_timequeue_t *pq, int tag) {
   nchan_timequeue_page_t *page = timequeue_get_nonfull_page(pq);
   if(!page) {
+    nchan_log_error("timequque %p ENQUEUE tag %d: ERROR: can't get page", pq, tag);
     return 0;
   }
   nchan_timequeue_time_t    *data = &page->data[page->end];
@@ -77,8 +78,11 @@ int nchan_timequeue_queue(nchan_timequeue_t *pq, int tag) {
   return 1;
 }
 
-int nchan_timequeue_dequeue(nchan_timequeue_t *pq, int tag, ngx_msec_t *start_time) {
+int nchan_timequeue_dequeue(nchan_timequeue_t *pq, int tag, ngx_msec_t *start_time, int *tag_mismatch) {
   nchan_timequeue_page_t *page = pq->first;
+  if(tag_mismatch) {
+    *tag_mismatch = 0;
+  }
   if(!page) {
     return 0;
   }
@@ -88,8 +92,15 @@ int nchan_timequeue_dequeue(nchan_timequeue_t *pq, int tag, ngx_msec_t *start_ti
   }
   nchan_timequeue_time_t    *data = &page->data[page->start];
   
-  assert(tag == data->tag);
-  *start_time = data->time_start;
+  if(tag != data->tag) {
+    if(tag_mismatch) {
+      *tag_mismatch = 1;
+    }
+    return 0;
+  }
+  if(start_time) {
+    *start_time = data->time_start;
+  }
   
   page->start++;
   

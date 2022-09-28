@@ -7,6 +7,7 @@
 typedef struct {
   ngx_msec_t  time_start;
   int         tag;
+  intptr_t    pd;
 } nchan_timequeue_time_t;
 
 struct nchan_timequeue_page_s {
@@ -31,7 +32,7 @@ typedef struct {
 
 int nchan_timequeue_init(nchan_timequeue_t *pq, size_t items_per_page);
 int nchan_timequeue_queue(nchan_timequeue_t *pq, int tag);
-int nchan_timequeue_dequeue(nchan_timequeue_t *pq, int tag, ngx_msec_t *start_time);
+int nchan_timequeue_dequeue(nchan_timequeue_t *pq, int tag, ngx_msec_t *start_time, int *tag_mismatch);
 void nchan_timequeue_destroy(nchan_timequeue_t *pq);
 
 #endif //NCHAN_TIMEQUEUE_H

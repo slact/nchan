@@ -255,10 +255,13 @@ static void redis_store_reap_chanhead(rdstore_channel_head_t *ch) {
   DBG("reap channel %V", &ch->id);
 
   if(ch->pubsub_status == REDIS_PUBSUB_SUBSCRIBED) {
+    redis_node_t *pubsub_node = ch->redis.node.pubsub;
     assert(ch->redis.nodeset->settings.storage_mode >= REDIS_MODE_DISTRIBUTED);
-    assert(ch->redis.node.pubsub);
+    assert(pubsub_node);
     ch->pubsub_status = REDIS_PUBSUB_UNSUBSCRIBED;
-    redis_subscriber_command(ch->redis.node.pubsub, NULL, NULL, "UNSUBSCRIBE %b", STR(&ch->redis.pubsub_id));
+    //node_log_error(pubsub_node, "UNSUBSCRIBE start %V", &ch->redis.pubsub_id);
+    node_pubsub_time_start(pubsub_node, NCHAN_REDIS_CMD_PUBSUB_UNSUBSCRIBE);
+    redis_subscriber_command(pubsub_node, NULL, NULL, "%s %b", pubsub_node->nodeset->use_spublish ? "sunsubscribe" : "unsubscribe", STR(&ch->redis.pubsub_id));
   }
 
   /*
