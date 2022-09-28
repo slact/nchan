@@ -385,8 +385,8 @@ void redis_nodeset_stats_destroy(redis_nodeset_t *ns) {
 }
 
 void redis_node_stats_init(redis_node_t *node) {
-  nchan_timequeue_init(&node->stats.timequeue.cmd, REDIS_NODE_CMD_TIMEQUEUE_LENGTH);
-  nchan_timequeue_init(&node->stats.timequeue.pubsub, REDIS_NODE_PUBSUB_TIMEQUEUE_LENGTH);
+  nchan_timequeue_init(&node->stats.timequeue.cmd, REDIS_NODE_CMD_TIMEQUEUE_LENGTH, NCHAN_REDIS_CMD_ANY);
+  nchan_timequeue_init(&node->stats.timequeue.pubsub, REDIS_NODE_PUBSUB_TIMEQUEUE_LENGTH, NCHAN_REDIS_CMD_ANY);
   node->stats.data = NULL;
 }
 
@@ -506,25 +506,26 @@ void node_pubsub_time_start(redis_node_t *node, redis_node_cmd_tag_t cmdtag) {
   node_time_start(node, &node->stats.timequeue.pubsub, cmdtag);
 }
 
-static void node_time_finish(redis_node_t *node, nchan_timequeue_t *tq, redis_node_cmd_tag_t cmdtag, int care_about_tag) {
+static void node_time_finish(redis_node_t *node, nchan_timequeue_t *tq, redis_node_cmd_tag_t cmdtag, int strict_mode) {
   if(!node->nodeset->node_stats.active) {
     return;
   }
   
   assert(&node->stats.timequeue.cmd == tq || &node->stats.timequeue.pubsub == tq);
-  int tag_mismatch;
-  ngx_msec_t start_time;
-  if(!nchan_timequeue_dequeue(tq, cmdtag, &start_time, &tag_mismatch)) {
-    if(care_about_tag && tag_mismatch) {
-      node_log_error(node, "CMDTAG didn't match when recording command time");
-      return;
+  nchan_timequeue_time_t    tqtime;
+  
+  if(!nchan_timequeue_dequeue(tq, strict_mode ? cmdtag : NCHAN_REDIS_CMD_ANY, &tqtime)) {
+    if(strict_mode) {
+      node_log_error(node, "timequeue dequeue error (expected_tag: %i, retrieved: %i)", cmdtag, tqtime.tag);
     }
-    else if(
+    else {
+      node_log_error(node, "timequeue dequeue error (not a tag mismatch)");
+    }
     return;
   }
-  ngx_msec_t t = ngx_current_msec - start_time;
-  assert(cmdtag >= 0 && cmdtag <= NCHAN_REDIS_CMD_OTHER);
+  ngx_msec_t t = ngx_current_msec - tqtime.time_start;
   
+  assert(cmdtag >= 0 && cmdtag <= NCHAN_REDIS_CMD_OTHER);
   node_time_record(node, cmdtag, t);
 }
 

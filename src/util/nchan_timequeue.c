@@ -42,7 +42,7 @@ static nchan_timequeue_page_t *timequeue_page_enqueue(nchan_timequeue_t *pq) {
   return nextpage;
 }
 
-int nchan_timequeue_init(nchan_timequeue_t *pq, size_t items_per_page) {
+int nchan_timequeue_init(nchan_timequeue_t *pq, size_t items_per_page, int anytag) {
   pq->items_per_page = items_per_page;
   
   pq->first = timequeue_page_alloc(pq);
@@ -51,6 +51,7 @@ int nchan_timequeue_init(nchan_timequeue_t *pq, size_t items_per_page) {
   }
   pq->last = pq->first;
   pq->standby = NULL;
+  pq->anytag = anytag;
   
   return 1;
 }
@@ -78,28 +79,24 @@ int nchan_timequeue_queue(nchan_timequeue_t *pq, int tag) {
   return 1;
 }
 
-int nchan_timequeue_dequeue(nchan_timequeue_t *pq, int tag, ngx_msec_t *start_time, int *tag_mismatch) {
+int nchan_timequeue_dequeue(nchan_timequeue_t *pq, int expected_tag, nchan_timequeue_time_t *dequeued) {
   nchan_timequeue_page_t *page = pq->first;
-  if(tag_mismatch) {
-    *tag_mismatch = 0;
-  }
-  if(!page) {
-    return 0;
-  }
-  if(page->start == page->end && page->start == 0) {
-    //empty page
+  if(!page ||
+    (page->start == page->end && page->start == 0)) {
+    if(dequeued) {
+      dequeued->time_start = 0;
+      dequeued->tag = pq->anytag;
+    }
     return 0;
   }
   nchan_timequeue_time_t    *data = &page->data[page->start];
   
-  if(tag != data->tag) {
-    if(tag_mismatch) {
-      *tag_mismatch = 1;
-    }
-    return 0;
+  if(dequeued) {
+    *dequeued = *data;
   }
-  if(start_time) {
-    *start_time = data->time_start;
+  
+  if(expected_tag != data->tag && expected_tag != pq->anytag) {
+    return 0;
   }
   
   page->start++;

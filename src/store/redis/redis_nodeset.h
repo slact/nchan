@@ -133,20 +133,26 @@ typedef struct {
 #endif
 
 typedef enum {
-  NCHAN_REDIS_CMD_CONNECT = 0, //must start at 0
-  NCHAN_REDIS_CMD_PUBSUB_SUBSCRIBE,
-  NCHAN_REDIS_CMD_PUBSUB_UNSUBSCRIBE,
-  NCHAN_REDIS_CMD_CHANNEL_CHANGE_SUBSCRIBER_COUNT,
-  NCHAN_REDIS_CMD_CHANNEL_DELETE,
-  NCHAN_REDIS_CMD_CHANNEL_FIND,
-  NCHAN_REDIS_CMD_CHANNEL_GET_MESSAGE,
-  NCHAN_REDIS_CMD_CHANNEL_GET_LARGE_MESSAGE,
-  NCHAN_REDIS_CMD_CHANNEL_PUBLISH,
-  NCHAN_REDIS_CMD_CHANNEL_REQUEST_SUBSCRIBER_INFO,
-  NCHAN_REDIS_CMD_CHANNEL_GET_SUBSCRIBER_INFO_ID,
-  NCHAN_REDIS_CMD_CHANNEL_SUBSCRIBE,
-  NCHAN_REDIS_CMD_CHANNEL_UNSUBSCRIBE,
-  NCHAN_REDIS_CMD_OTHER  //must be last in this enum
+   //must start at 0
+  NCHAN_REDIS_CMD_ANY                             = -1,
+  NCHAN_REDIS_CMD_CONNECT                         = 0,
+  NCHAN_REDIS_CMD_PUBSUB_SUBSCRIBE                = 1,
+  NCHAN_REDIS_CMD_PUBSUB_UNSUBSCRIBE              = 2,
+  NCHAN_REDIS_CMD_CHANNEL_CHANGE_SUBSCRIBER_COUNT = 3,
+  NCHAN_REDIS_CMD_CHANNEL_DELETE                  = 4,
+  NCHAN_REDIS_CMD_CHANNEL_FIND                    = 5,
+  NCHAN_REDIS_CMD_CHANNEL_GET_MESSAGE             = 6,
+  NCHAN_REDIS_CMD_CHANNEL_GET_LARGE_MESSAGE       = 7,
+  NCHAN_REDIS_CMD_CHANNEL_PUBLISH                 = 8,
+  NCHAN_REDIS_CMD_CHANNEL_REQUEST_SUBSCRIBER_INFO = 9,
+  NCHAN_REDIS_CMD_CHANNEL_GET_SUBSCRIBER_INFO_ID  = 10,
+  NCHAN_REDIS_CMD_CHANNEL_SUBSCRIBE               = 11,
+  NCHAN_REDIS_CMD_CHANNEL_UNSUBSCRIBE             = 12,
+  NCHAN_REDIS_CMD_CHANNEL_KEEPALIVE               = 13,
+  NCHAN_REDIS_CMD_CLUSTER_CHECK                   = 14,
+  NCHAN_REDIS_CMD_CLUSTER_RECOVER                 = 15,
+  NCHAN_REDIS_CMD_OTHER                           = 16
+  //NCHAN_REDIS_CMD_OTHER must be last in this enum
 } redis_node_cmd_tag_t;
 
 typedef struct {
@@ -435,6 +441,11 @@ redis_node_command_stats_t *redis_node_get_stats(redis_node_t *node);
 
 void node_command_time_start(redis_node_t *node, redis_node_cmd_tag_t cmdtag);
 void node_command_time_finish(redis_node_t *node, redis_node_cmd_tag_t cmdtag);
+
+void node_pubsub_time_start(redis_node_t *node, redis_node_cmd_tag_t cmdtag);
+void node_pubsub_time_finish(redis_node_t *node, redis_node_cmd_tag_t cmdtag);
+
+void node_time_record(redis_node_t *node, redis_node_cmd_tag_t cmdtag, ngx_msec_t t);
 
 ngx_chain_t *redis_nodeset_stats_response_body_chain_palloc(redis_nodeset_command_stats_t *nstats , ngx_pool_t *pool);
   
