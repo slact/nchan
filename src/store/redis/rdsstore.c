@@ -1280,7 +1280,7 @@ static ngx_int_t redisChannelKeepaliveCallback_send(redis_nodeset_t *ns, void *p
     head->reserved++;
     
     nchan_set_next_backoff(&head->keepalive_interval, &ns->settings.idle_channel_ttl);
-    
+    node_command_time_start(node, NCHAN_REDIS_CMD_CHANNEL_KEEPALIVE);
     nchan_redis_script(channel_keepalive, node, &redisChannelKeepaliveCallback, head, &head->id, "%i %i", head->keepalive_interval, ns->settings.idle_channel_ttl_safety_margin);
   }
   return NGX_OK;

@@ -986,6 +986,7 @@ static void nodeset_cluster_check_event_callback(redisAsyncContext *ac, void *re
   int                         epoch;
   const char                 *err = NULL;
   
+  node_command_time_finish(node, NCHAN_REDIS_CMD_CLUSTER_CHECK);
   
   if(reply == NULL) {
     //Node should have already disconnected
@@ -1125,6 +1126,7 @@ static void nodeset_cluster_check_event(ngx_event_t *ev) {
   }
   
   node_command_sent(node);
+  node_command_time_start(node, NCHAN_REDIS_CMD_CLUSTER_CHECK);
   
   nodeset_log_debug(ns, "cluster_check event on node %s", node_nickname_cstr(node));
   redisAsyncCommand(node->ctx.cmd, NULL, NULL, "MULTI");
@@ -1182,6 +1184,7 @@ static int nodeset_recover_cluster(redis_nodeset_t *ns) {
   nodeset_log_notice(ns, "Recovering cluster though node %s", node_nickname_cstr(node));
   
   node_command_sent(node);
+  node_command_time_start(node, NCHAN_REDIS_CMD_CLUSTER_RECOVER);
   
   redisAsyncCommand(node->ctx.cmd, NULL, NULL, "MULTI");
   redisAsyncCommand(node->ctx.cmd, NULL, NULL, "CLUSTER INFO");
@@ -1200,6 +1203,7 @@ static void nodeset_recover_cluster_handler(redisAsyncContext *ac, void *rep, vo
   u_char                      errbuf[1024];
   
   node_command_received(node);
+  node_command_time_finish(node, NCHAN_REDIS_CMD_CLUSTER_RECOVER);
   
   ngx_snprintf(errbuf, 1024, "unknown reason%Z");
   

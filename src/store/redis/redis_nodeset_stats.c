@@ -291,6 +291,18 @@ ngx_chain_t *redis_nodeset_stats_response_body_chain_palloc(redis_nodeset_comman
                           "          \"msec\"     : %u,\n"
                           "          \"times\"    : %u\n"
                           "        },\n"
+                          "        \"channel_keepalive\": {\n"
+                          "          \"msec\"     : %u,\n"
+                          "          \"times\"    : %u\n"
+                          "        },\n"
+                          "        \"cluster_check\": {\n"
+                          "          \"msec\"     : %u,\n"
+                          "          \"times\"    : %u\n"
+                          "        },\n"
+                          "        \"cluster_recover\": {\n"
+                          "          \"msec\"     : %u,\n"
+                          "          \"times\"    : %u\n"
+                          "        },\n"
                           "        \"other\"      : {\n"
                           "          \"msec\"     : %u,\n"
                           "          \"times\"    : %u\n"
@@ -314,6 +326,9 @@ ngx_chain_t *redis_nodeset_stats_response_body_chain_palloc(redis_nodeset_comman
              REDIS_NODE_STAT_FMT_ARGS(stat, CHANNEL_GET_SUBSCRIBER_INFO_ID),
              REDIS_NODE_STAT_FMT_ARGS(stat, CHANNEL_SUBSCRIBE),
              REDIS_NODE_STAT_FMT_ARGS(stat, CHANNEL_UNSUBSCRIBE),
+             REDIS_NODE_STAT_FMT_ARGS(stat, CHANNEL_KEEPALIVE),
+             REDIS_NODE_STAT_FMT_ARGS(stat, CLUSTER_CHECK),
+             REDIS_NODE_STAT_FMT_ARGS(stat, CLUSTER_RECOVER),
              REDIS_NODE_STAT_FMT_ARGS(stat, OTHER),
              i + 1 < nstats->count ? "," : ""
     );
