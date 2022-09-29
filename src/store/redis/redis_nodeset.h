@@ -388,22 +388,29 @@ redis_node_t *nodeset_node_find_by_chanhead(void *chanhead);
 redis_node_t *nodeset_node_pubsub_find_by_chanhead(void *chanhead);
 int node_channel_in_keyspace(redis_node_t *node, void *chanhead);
 
+typedef enum {
+  REDIS_NODE_CTX_COMMAND,
+  REDIS_NODE_CTX_PUBSUB
+} redis_node_ctx_type_t;
 
 #define REDIS_NODE_BATCH_COMMAND_MAX_ARGS 256
 typedef struct {
   redis_node_t    *node;
+  redis_node_ctx_type_t ctxtype;
   redisCallbackFn *callback;
   void            *privdata;
   size_t           cmdc;
   size_t           argc;
   const char      *argv[REDIS_NODE_BATCH_COMMAND_MAX_ARGS];
   size_t           argvlen[REDIS_NODE_BATCH_COMMAND_MAX_ARGS];
+  unsigned         commands_sent;
 } node_batch_command_t;
 
-void node_batch_command_init(node_batch_command_t *batch, redis_node_t *node, redisCallbackFn *fn, void *privdata, unsigned cmd_count, ...);
+void node_batch_command_init(node_batch_command_t *batch, redis_node_t *node, redis_node_ctx_type_t ctxtype, redisCallbackFn *fn, void *privdata, unsigned cmd_count, ...);
 void node_batch_command_send(node_batch_command_t *batch);
 int node_batch_command_add_ngx_str(node_batch_command_t *batch, const ngx_str_t *arg);
 int node_batch_command_add(node_batch_command_t *batch, const char *arg, size_t arglen);
+unsigned node_batch_command_times_sent(node_batch_command_t *batch);
 
 
 

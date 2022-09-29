@@ -2778,12 +2778,14 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
 }
 
 
-void node_batch_command_init(node_batch_command_t *batch, redis_node_t *node, redisCallbackFn *fn, void *privdata, unsigned cmdc, ...) {
+void node_batch_command_init(node_batch_command_t *batch, redis_node_t *node, redis_node_ctx_type_t ctxtype, redisCallbackFn *fn, void *privdata, unsigned cmdc, ...) {
   batch->node = node;
   batch->callback = fn;
   batch->privdata = privdata;
   batch->cmdc = cmdc;
   batch->argc = cmdc;
+  batch->ctxtype = ctxtype;
+  batch->commands_sent = 0;
   
   va_list argp;
   va_start(argp, cmdc);
@@ -2801,7 +2803,17 @@ void node_batch_command_send(node_batch_command_t *batch) {
   if(batch->argc <= batch->cmdc) {
     return;
   }
-  redisAsyncCommandArgv(batch->node->ctx.pubsub, batch->callback, batch->privdata, batch->argc, batch->argv, batch->argvlen);
+  redisAsyncContext *redis = NULL;
+  switch(batch->ctxtype) {
+    case REDIS_NODE_CTX_COMMAND:
+      redis = batch->node->ctx.cmd;
+      break;
+    case REDIS_NODE_CTX_PUBSUB:
+      redis = batch->node->ctx.pubsub;
+      break;
+  }
+  batch->commands_sent++;
+  redisAsyncCommandArgv(redis, batch->callback, batch->privdata, batch->argc, batch->argv, batch->argvlen);
   batch->argc=batch->cmdc;
 }
 
@@ -2819,6 +2831,10 @@ int node_batch_command_add(node_batch_command_t *batch, const char *arg, size_t 
     return 1;
   }
   return 0;
+}
+
+unsigned node_batch_command_times_sent(node_batch_command_t *batch) {
+  return batch->commands_sent;
 }
 
 static void node_make_ready(redis_node_t *node) {
@@ -2867,7 +2883,7 @@ static void node_make_ready(redis_node_t *node) {
       invalid on the server for unknown reasons.
       So, the response handler is NULL
     */
-    node_batch_command_init(&unsub, node, NULL, NULL, 1, node->nodeset->use_spublish ? "SUNSUBSCRIBE" : "UNSUBSCRIBE");
+    node_batch_command_init(&unsub, node, REDIS_NODE_CTX_PUBSUB, NULL, NULL, 1, node->nodeset->use_spublish ? "SUNSUBSCRIBE" : "UNSUBSCRIBE");
     
     int unsubbed_count = 0;
     for(cur = nchan_slist_first(pubsub); cur != NULL; cur = next) {
@@ -2884,7 +2900,7 @@ static void node_make_ready(redis_node_t *node) {
       }
       
       unsubbed_count++;
-
+      
       node_batch_command_add_ngx_str(&unsub, &cur->redis.pubsub_id);
       cur->pubsub_status = REDIS_PUBSUB_UNSUBSCRIBED;
       
@@ -2900,6 +2916,11 @@ static void node_make_ready(redis_node_t *node) {
     }
     if(unsubbed_count > 0) {
       node_batch_command_send(&unsub);
+    }
+    int times_sent = node_batch_command_times_sent(&unsub);
+    int i;
+    for(i=0; i< times_sent; i++) {
+      node_pubsub_time_start(node, NCHAN_REDIS_CMD_PUBSUB_UNSUBSCRIBE);
     }
     
     if(unsubbed_count + uncommanded_count > 0) {
