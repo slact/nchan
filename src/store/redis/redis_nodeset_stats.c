@@ -428,16 +428,25 @@ redis_node_command_stats_t *redis_node_stats_attach(redis_node_t *node) {
     if(stats->attached) {
       continue;
     }
+    size_t stats_id_len = strlen(stats->id);
     
-    if(id->len > 0) {
-      if(nchan_strmatch(id, 1, stats->id)) {
-        //we got it
+    if(strcmp(name, stats->name) == 0) {
+      //match by name  
+      if(id->len > 0 && stats_id_len > 0 && !nchan_strmatch(id, 1, stats->id)) {
+          //ids present for both, and they don't match
+        continue;
+      }
+      else {
+        //either ids match, or at least one is missing. When don't have a definite id mismatch, 
+        //we assume the stats are for the same node based on its name (address:port)
+        if(stats_id_len == 0 && id->len > 0) {
+          //stats has no id. assume it's a match by name (addr:port), and copy the id
+          ngx_snprintf((u_char *)stats->id, sizeof(stats->id), "%V%Z", id);
+          break;
+        }
+        
         break;
       }
-    }
-    else if(strcmp(name, stats->name) == 0) {
-      //match by name
-      break;
     }
   }
   
