@@ -258,7 +258,7 @@ static void redis_store_reap_chanhead(rdstore_channel_head_t *ch) {
     redis_node_t *pubsub_node = ch->redis.node.pubsub;
     assert(ch->redis.nodeset->settings.storage_mode >= REDIS_MODE_DISTRIBUTED);
     assert(pubsub_node);
-    ch->pubsub_status = REDIS_PUBSUB_UNSUBSCRIBED;
+    redis_chanhead_set_pubsub_status(ch, NULL, REDIS_PUBSUB_UNSUBSCRIBED);
     //node_log_error(pubsub_node, "UNSUBSCRIBE start %V", &ch->redis.pubsub_id);
     node_pubsub_time_start(pubsub_node, NCHAN_REDIS_CMD_PUBSUB_UNSUBSCRIBE);
     redis_subscriber_command(pubsub_node, NULL, NULL, "%s %b", pubsub_node->nodeset->use_spublish ? "sunsubscribe" : "unsubscribe", STR(&ch->redis.pubsub_id));
@@ -730,6 +730,76 @@ static rdstore_channel_head_t *find_chanhead_for_pubsub_callback(ngx_str_t *chid
   return head;
 }
 
+ngx_int_t redis_chanhead_set_pubsub_status(rdstore_channel_head_t *chanhead, redis_node_t *node, redis_pubsub_status_t status) {
+  assert(chanhead);
+  
+  switch(status) {
+    case REDIS_PUBSUB_UNSUBSCRIBED:
+      if(chanhead->pubsub_status == REDIS_PUBSUB_UNSUBSCRIBED) {
+        node_log_warning(node, "channel %V got double UNSUBSCRIBED", &chanhead->id);
+      }
+      if(chanhead->pubsub_status == REDIS_PUBSUB_SUBSCRIBING) {
+        node_log_error(node, "channel %V is SUBSCRIBING, but status was set to UNSUBSCRIBED", &chanhead->id);
+      }
+      chanhead->pubsub_status = REDIS_PUBSUB_UNSUBSCRIBED;
+      
+      nodeset_node_dissociate_pubsub_chanhead(chanhead);
+      
+      if(chanhead->redis.slist.in_disconnected_pubsub_list == 0) {
+        nchan_slist_append(&chanhead->redis.nodeset->channels.disconnected_pubsub, chanhead);
+        chanhead->redis.slist.in_disconnected_pubsub_list = 1;
+      }
+      
+      if(chanhead->redis.nodeset->settings.storage_mode == REDIS_MODE_BACKUP && chanhead->status == READY) {
+        chanhead->status = NOTREADY;
+        chanhead->spooler.fn->handle_channel_status_change(&chanhead->spooler);
+      }
+      
+      break;
+    
+    case REDIS_PUBSUB_SUBSCRIBING:
+      if(chanhead->pubsub_status != REDIS_PUBSUB_UNSUBSCRIBED) {
+        nchan_log_error("Redis chanhead %V pubsub status set to SUBSCRIBING when prev status was not UNSUBSCRIBED (%i)", &chanhead->id, chanhead->pubsub_status);
+      }
+      chanhead->pubsub_status = REDIS_PUBSUB_SUBSCRIBING;
+      break;
+    
+    case REDIS_PUBSUB_SUBSCRIBED:
+      assert(node);
+      if(chanhead->pubsub_status != REDIS_PUBSUB_SUBSCRIBING) {
+        node_log_error(node, "expected previous pubsub_status for channel %p (id: %V) to be REDIS_PUBSUB_SUBSCRIBING (%i), was %i", chanhead, &chanhead->id, REDIS_PUBSUB_SUBSCRIBING, chanhead->pubsub_status);
+      }
+      chanhead->pubsub_status = REDIS_PUBSUB_SUBSCRIBED;
+      nodeset_node_associate_pubsub_chanhead(node, chanhead);
+      
+      switch(chanhead->status) {
+        case NOTREADY:
+          chanhead->status = READY;
+          chanhead->spooler.fn->handle_channel_status_change(&chanhead->spooler);
+          break;
+        
+        case READY:
+          break;
+        
+        case INACTIVE:
+          // this is fine, inactive channels can be pubsubbed, they will be garbage collected
+          // later if needed
+          break;
+          
+        default:
+          node_log_error(node, "REDIS: PUB/SUB really unexpected chanhead status %i", chanhead->status);
+          //not sposed to happen
+          raise(SIGABRT);
+          break;
+      }
+      break;
+      
+    
+  }
+  
+  return NGX_OK;
+}
+
 static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privdata) {
   redisReply             *reply = r;
   redisReply             *el = NULL;
@@ -944,29 +1014,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
       node_pubsub_time_finish_relaxed(node, NCHAN_REDIS_CMD_PUBSUB_SUBSCRIBE);
       chanhead = find_chanhead_for_pubsub_callback(chid);
       if(chanhead != NULL) {
-        if(chanhead->pubsub_status != REDIS_PUBSUB_SUBSCRIBING) {
-          node_log_error(node, "expected previous pubsub_status for channel %p (id: %V) to be REDIS_PUBSUB_SUBSCRIBING (%i), was %i", chanhead, &chanhead->id, REDIS_PUBSUB_SUBSCRIBING, chanhead->pubsub_status);
-        }
-        chanhead->pubsub_status = REDIS_PUBSUB_SUBSCRIBED;
-        
-        switch(chanhead->status) {
-          case NOTREADY:
-            chanhead->status = READY;
-            chanhead->spooler.fn->handle_channel_status_change(&chanhead->spooler);
-            //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "REDIS: PUB/SUB subscribed to %s, chanhead %p now READY.", reply->element[1]->str, chanhead);
-            break;
-          case READY:
-            node_log_error(node, "REDIS: PUB/SUB already subscribed to %s, chanhead %p (id %V) already READY.", reply->element[1]->str, chanhead, &chanhead->id);
-            break;
-          case INACTIVE:
-            // this is fine, inactive channels can be pubsubbed, they will be garbage collected
-            // later if needed
-            break;
-          default:
-            node_log_error(node, "REDIS: PUB/SUB really unexpected chanhead status %i", chanhead->status);
-            assert(0);
-            //not sposed to happen
-        }
+        redis_chanhead_set_pubsub_status(chanhead, node, REDIS_PUBSUB_SUBSCRIBED);
       }
       else {
         node_log_error(node, "received SUBSCRIBE acknowledgement for unknown channel %V", chid);
@@ -1351,7 +1399,8 @@ ngx_int_t ensure_chanhead_pubsub_subscribed_if_needed(rdstore_channel_head_t *ch
    && nodeset_ready(ch->redis.nodeset)
   ) {
     pubsub_node = nodeset_node_pubsub_find_by_chanhead(ch);
-    ch->pubsub_status = REDIS_PUBSUB_SUBSCRIBING;
+    
+    redis_chanhead_set_pubsub_status(ch, pubsub_node, REDIS_PUBSUB_SUBSCRIBING);
     node_pubsub_time_start(pubsub_node, NCHAN_REDIS_CMD_PUBSUB_SUBSCRIBE);
     redis_subscriber_command(pubsub_node, redis_subscriber_callback, pubsub_node, "%s %b", pubsub_node->nodeset->use_spublish ? "SSUBSCRIBE" : "SUBSCRIBE", STR(&ch->redis.pubsub_id));
   }

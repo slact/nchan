@@ -1798,7 +1798,6 @@ int node_disconnect(redis_node_t *node, int disconnected_state) {
   nchan_slist_t *cmd = &node->channels.cmd;
   nchan_slist_t *pubsub = &node->channels.pubsub;
   nchan_slist_t *disconnected_cmd = &node->nodeset->channels.disconnected_cmd;
-  nchan_slist_t *disconnected_pubsub = &node->nodeset->channels.disconnected_pubsub;
   
   for(cur = nchan_slist_first(cmd); cur != NULL; cur = nchan_slist_first(cmd)) {
     nodeset_node_dissociate_chanhead(cur);
@@ -1809,15 +1808,7 @@ int node_disconnect(redis_node_t *node, int disconnected_state) {
     }
   }
   for(cur = nchan_slist_first(pubsub); cur != NULL; cur = nchan_slist_first(pubsub)) {
-    nodeset_node_dissociate_pubsub_chanhead(cur);
-    nchan_slist_append(disconnected_pubsub, cur);
-    cur->redis.slist.in_disconnected_pubsub_list = 1;
-    
-    cur->pubsub_status = REDIS_PUBSUB_UNSUBSCRIBED;
-    
-    if(cur->status == READY) {
-      cur->status = NOTREADY;
-    }
+    redis_chanhead_set_pubsub_status(cur, NULL, REDIS_PUBSUB_UNSUBSCRIBED);
   }
   
   redis_node_stats_detach(node);
@@ -2859,7 +2850,6 @@ static void node_make_ready(redis_node_t *node) {
     nchan_slist_t *pubsub = &node->channels.pubsub;
     
     nchan_slist_t *disconnected_cmd = &node->nodeset->channels.disconnected_cmd;
-    nchan_slist_t *disconnected_pubsub = &node->nodeset->channels.disconnected_pubsub;
     int uncommanded_count = 0;
     for(cur = nchan_slist_first(cmd); cur != NULL; cur = next) {
       next = nchan_slist_next(cmd, cur);
@@ -2895,24 +2885,10 @@ static void node_make_ready(redis_node_t *node) {
       if(cur->pubsub_status == REDIS_PUBSUB_UNSUBSCRIBED) {
         continue;
       }
-      if(cur->pubsub_status == REDIS_PUBSUB_SUBSCRIBING) {
-        node_log_notice(node, "channel %V is REDIS_PUBSUB_SUBSCRIBING", &cur->id);
-      }
-      
+      redis_chanhead_set_pubsub_status(cur, NULL, REDIS_PUBSUB_UNSUBSCRIBED);
       unsubbed_count++;
       
       node_batch_command_add_ngx_str(&unsub, &cur->redis.pubsub_id);
-      cur->pubsub_status = REDIS_PUBSUB_UNSUBSCRIBED;
-      
-      nodeset_node_dissociate_pubsub_chanhead(cur);
-      nchan_slist_append(disconnected_pubsub, cur);
-      cur->redis.slist.in_disconnected_pubsub_list = 1;
-      
-      cur->pubsub_status = REDIS_PUBSUB_UNSUBSCRIBED;
-      
-      if(cur->redis.nodeset->settings.storage_mode == REDIS_MODE_BACKUP && cur->status == READY) {
-        cur->status = NOTREADY;
-      }
     }
     if(unsubbed_count > 0) {
       node_batch_command_send(&unsub);
@@ -3632,6 +3608,11 @@ ngx_int_t nodeset_node_associate_chanhead(redis_node_t *node, void *chan) {
 }
 ngx_int_t nodeset_node_associate_pubsub_chanhead(redis_node_t *node, void *chan) {
   rdstore_channel_head_t *ch = chan;
+  
+  if(ch->redis.node.pubsub == node) {
+    //already associated
+    return NGX_OK;
+  }
   assert(ch->redis.node.pubsub == NULL);
   assert(node->nodeset == ch->redis.nodeset);
   assert(ch->redis.slist.in_disconnected_pubsub_list == 0);
@@ -3651,9 +3632,12 @@ ngx_int_t nodeset_node_dissociate_chanhead(void *chan) {
 }
 ngx_int_t nodeset_node_dissociate_pubsub_chanhead(void *chan) {
   rdstore_channel_head_t *ch = chan;
-  if(ch->redis.node.pubsub) {
-    nchan_slist_remove(&ch->redis.node.pubsub->channels.pubsub, ch);
+  
+  if(ch->redis.node.pubsub == NULL) {
+    //already dissociated
+    return NGX_OK;
   }
+  nchan_slist_remove(&ch->redis.node.pubsub->channels.pubsub, ch);
   ch->redis.node.pubsub = NULL; 
   return NGX_OK;
 }

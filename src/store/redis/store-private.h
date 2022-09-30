@@ -105,6 +105,8 @@ ngx_int_t rdstore_initialize_chanhead_reaper(nchan_reaper_t *reaper, char *name)
 ngx_int_t redis_chanhead_gc_add(rdstore_channel_head_t *head, ngx_int_t expire, const char *reason);
 ngx_int_t redis_chanhead_gc_withdraw(rdstore_channel_head_t *head);
 ngx_int_t redis_chanhead_catch_up_after_reconnect(rdstore_channel_head_t *ch);
+ngx_int_t redis_chanhead_set_pubsub_status(rdstore_channel_head_t *head, redis_node_t *node,  redis_pubsub_status_t status);
+
 
 ngx_int_t ensure_chanhead_pubsub_subscribed_if_needed(rdstore_channel_head_t *ch);
 
