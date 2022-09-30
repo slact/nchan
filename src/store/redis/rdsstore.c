@@ -1031,6 +1031,13 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
     if(chid) {
       DBG("received UNSUBSCRIBE acknowledgement for channel %V", chid);
       node_pubsub_time_finish_relaxed(node, NCHAN_REDIS_CMD_PUBSUB_UNSUBSCRIBE);
+      chanhead = find_chanhead_for_pubsub_callback(chid);
+      if(chanhead != NULL) {
+        if(chanhead->pubsub_status != REDIS_PUBSUB_UNSUBSCRIBED) {
+          //didn't expect to receive an UNSUBSCRIBE -- but it does happen when a node is going down or being failed over
+          redis_chanhead_set_pubsub_status(chanhead, node, REDIS_PUBSUB_UNSUBSCRIBED);
+        }
+      }
     }
     else {
       DBG("received UNSUBSCRIBE acknowledgement for worker channel %s", redis_subscriber_id);
