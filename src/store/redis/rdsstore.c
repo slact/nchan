@@ -941,6 +941,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
 
   else if((CHECK_REPLY_STRVAL(reply->element[0], "subscribe") || CHECK_REPLY_STRVAL(reply->element[0], "ssubscribe")) && CHECK_REPLY_INT(reply->element[2])) {
     if(chid) {
+      node_pubsub_time_finish_relaxed(node, NCHAN_REDIS_CMD_PUBSUB_SUBSCRIBE);
       chanhead = find_chanhead_for_pubsub_callback(chid);
       if(chanhead != NULL) {
         if(chanhead->pubsub_status != REDIS_PUBSUB_SUBSCRIBING) {
@@ -981,6 +982,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
     
     if(chid) {
       DBG("received UNSUBSCRIBE acknowledgement for channel %V", chid);
+      node_pubsub_time_finish_relaxed(node, NCHAN_REDIS_CMD_PUBSUB_UNSUBSCRIBE);
     }
     else {
       DBG("received UNSUBSCRIBE acknowledgement for worker channel %s", redis_subscriber_id);
@@ -1350,6 +1352,7 @@ ngx_int_t ensure_chanhead_pubsub_subscribed_if_needed(rdstore_channel_head_t *ch
   ) {
     pubsub_node = nodeset_node_pubsub_find_by_chanhead(ch);
     ch->pubsub_status = REDIS_PUBSUB_SUBSCRIBING;
+    node_pubsub_time_start(pubsub_node, NCHAN_REDIS_CMD_PUBSUB_SUBSCRIBE);
     redis_subscriber_command(pubsub_node, redis_subscriber_callback, pubsub_node, "%s %b", pubsub_node->nodeset->use_spublish ? "SSUBSCRIBE" : "SUBSCRIBE", STR(&ch->redis.pubsub_id));
   }
   return NGX_OK;

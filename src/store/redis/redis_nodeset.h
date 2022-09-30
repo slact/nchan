@@ -448,9 +448,11 @@ redis_node_command_stats_t *redis_node_get_stats(redis_node_t *node);
 
 void node_command_time_start(redis_node_t *node, redis_node_cmd_tag_t cmdtag);
 void node_command_time_finish(redis_node_t *node, redis_node_cmd_tag_t cmdtag);
+void node_command_time_finish_relaxed(redis_node_t *node, redis_node_cmd_tag_t cmdtag);
 
 void node_pubsub_time_start(redis_node_t *node, redis_node_cmd_tag_t cmdtag);
 void node_pubsub_time_finish(redis_node_t *node, redis_node_cmd_tag_t cmdtag);
+void node_pubsub_time_finish_relaxed(redis_node_t *node, redis_node_cmd_tag_t cmdtag);
 
 void node_time_record(redis_node_t *node, redis_node_cmd_tag_t cmdtag, ngx_msec_t t);
 

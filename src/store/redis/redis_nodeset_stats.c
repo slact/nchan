@@ -541,11 +541,12 @@ static void node_time_finish(redis_node_t *node, nchan_timequeue_t *tq, redis_no
   if(!nchan_timequeue_dequeue(tq, strict_mode ? cmdtag : NCHAN_REDIS_CMD_ANY, &tqtime)) {
     if(strict_mode) {
       node_log_error(node, "timequeue dequeue error (expected_tag: %i, retrieved: %i)", cmdtag, tqtime.tag);
+      return;
     }
-    else {
-      node_log_error(node, "timequeue dequeue error (not a tag mismatch)");
+    else if(tqtime.time_start == 0) {
+      //fudge the time to make it seem like a o-time command
+      tqtime.time_start = ngx_current_msec;
     }
-    return;
   }
   ngx_msec_t t = ngx_current_msec - tqtime.time_start;
   
@@ -561,9 +562,9 @@ void node_pubsub_time_finish(redis_node_t *node, redis_node_cmd_tag_t cmdtag) {
   node_time_finish(node, &node->stats.timequeue.pubsub, cmdtag, 1);
 }
 
-void node_command_time_finish_anytag(redis_node_t *node, redis_node_cmd_tag_t cmdtag) {
+void node_command_time_finish_relaxed(redis_node_t *node, redis_node_cmd_tag_t cmdtag) {
   node_time_finish(node, &node->stats.timequeue.cmd, cmdtag, 0);
 }
-void node_pubsub_time_finish_anytag(redis_node_t *node, redis_node_cmd_tag_t cmdtag) {
+void node_pubsub_time_finish_relaxed(redis_node_t *node, redis_node_cmd_tag_t cmdtag) {
   node_time_finish(node, &node->stats.timequeue.pubsub, cmdtag, 0);
 }
