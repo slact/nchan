@@ -264,50 +264,14 @@ static void redis_store_reap_chanhead(rdstore_channel_head_t *ch) {
     redis_subscriber_command(pubsub_node, NULL, NULL, "%s %b", pubsub_node->nodeset->use_spublish ? "sunsubscribe" : "unsubscribe", STR(&ch->redis.pubsub_id));
   }
 
-  /*
-  redis_nodeset_t *ns = ch->redis.nodeset;
-  redis_node_t *cmd = ch->redis.node.cmd;
-  redis_node_t *pubsub = ch->redis.node.pubsub;
-  */
+  DBG("chanhead %p (%V) is empty and expired. unsubscribe, then delete.", ch, &ch->id);
   
-  nodeset_dissociate_chanhead(ch);
-  
-  /*  
-  rdstore_channel_head_t *cur;
-
-
-  for(cur = nchan_slist_first(&ns->channels.all); cur != NULL; cur = nchan_slist_next(&ns->channels.all, cur)) {
-    assert(cur != ch);
-  }
-  for(cur = nchan_slist_first(&ns->channels.disconnected_cmd); cur != NULL; cur = nchan_slist_next(&ns->channels.disconnected_cmd, cur)) {
-    assert(cur != ch);
-  }
-  for(cur = nchan_slist_first(&ns->channels.disconnected_pubsub); cur != NULL; cur = nchan_slist_next(&ns->channels.disconnected_pubsub, cur)) {
-    assert(cur != ch);
-  }
-  if(cmd) {
-    for(cur = nchan_slist_first(&cmd->channels.cmd); cur != NULL; cur = nchan_slist_next(&cmd->channels.cmd, cur)) {
-      assert(cur != ch);
-    }
-    for(cur = nchan_slist_first(&cmd->channels.pubsub); cur != NULL; cur = nchan_slist_next(&cmd->channels.pubsub, cur)) {
-      assert(cur != ch);
-    }
-  }
-  if(pubsub) {
-    for(cur = nchan_slist_first(&pubsub->channels.cmd); cur != NULL; cur = nchan_slist_next(&pubsub->channels.cmd, cur)) {
-      assert(cur != ch);
-    }
-    for(cur = nchan_slist_first(&pubsub->channels.pubsub); cur != NULL; cur = nchan_slist_next(&pubsub->channels.pubsub, cur)) {
-      assert(cur != ch);
-    }
-  }
-*/  
-  
-  
-  DBG("chanhead %p (%V) is empty and expired. delete.", ch, &ch->id);
   if(ch->keepalive_timer.timer_set) {
     ngx_del_timer(&ch->keepalive_timer);
   }
+  
+  nodeset_dissociate_chanhead(ch);
+
   stop_spooler(&ch->spooler, 1);
   CHANNEL_HASH_DEL(ch);
   
@@ -315,42 +279,37 @@ static void redis_store_reap_chanhead(rdstore_channel_head_t *ch) {
 }
 
 static ngx_int_t nchan_redis_chanhead_ready_to_reap(rdstore_channel_head_t *ch, uint8_t force) {
-  if(!force) {
-    if(ch->status != INACTIVE) {
-      return NGX_DECLINED;
-    }
-    
-    if(ch->reserved > 0 ) {
-      DBG("not yet time to reap %V, %i reservations left", &ch->id, ch->reserved);
-      return NGX_DECLINED;
-    }
-    
-    if(ch->gc.time - ngx_time() > 0) {
-      DBG("not yet time to reap %V, %i sec left", &ch->id, ch->gc.time - ngx_time());
-      return NGX_DECLINED;
-    }
-    
-    if (ch->sub_count > 0) { //there are subscribers
-      DBG("not ready to reap %V, %i subs left", &ch->id, ch->sub_count);
-      return NGX_DECLINED;
-    }
-    
-    if (ch->fetching_message_count > 0) { //there are subscribers
-      DBG("not ready to reap %V, fetching %i messages", &ch->id, ch->fetching_message_count);
-      return NGX_DECLINED;
-    }
-    
-    //if(ch->pubsub_status == REDIS_PUBSUB_SUBSCRIBING) {
-    //  return NGX_DECLINED;
-    //}
-    
-    //DBG("ok to delete channel %V", &ch->id);
-    return NGX_OK;
-  }
-  else {
+  if(force) {
     //force delete is always ok
     return NGX_OK;
   }
+  
+  if(ch->status != INACTIVE) {
+    return NGX_DECLINED;
+  }
+  
+  if(ch->reserved > 0 ) {
+    DBG("not yet time to reap %V, %i reservations left", &ch->id, ch->reserved);
+    return NGX_DECLINED;
+  }
+  
+  if(ch->gc.time - ngx_time() > 0) {
+    DBG("not yet time to reap %V, %i sec left", &ch->id, ch->gc.time - ngx_time());
+    return NGX_DECLINED;
+  }
+  
+  if (ch->sub_count > 0) { //there are subscribers
+    DBG("not ready to reap %V, %i subs left", &ch->id, ch->sub_count);
+    return NGX_DECLINED;
+  }
+  
+  if (ch->fetching_message_count > 0) { //there are subscribers
+    DBG("not ready to reap %V, fetching %i messages", &ch->id, ch->fetching_message_count);
+    return NGX_DECLINED;
+  }
+  
+  //DBG("ok to delete channel %V", &ch->id);
+  return NGX_OK;
 }
 
 static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privdata);
