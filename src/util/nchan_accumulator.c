@@ -10,6 +10,9 @@
 int nchan_accumulator_init(nchan_accumulator_t *acc, nchan_accumulator_type_t type, double halflife) {
   switch(type) {
     case ACCUMULATOR_EXP_DECAY_FLOAT:
+      if(halflife <= 0) {
+        return 0;
+      }
       acc->data.ed_float.value = 0;
       acc->data.ed_float.weight = 0;
       acc->data.ed_float.lambda = (double)1 / halflife;
