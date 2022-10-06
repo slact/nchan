@@ -240,7 +240,7 @@ static void receive_subscribe_chanhead_release(ngx_int_t sender, subscribe_data_
   memstore_chanhead_release(d->owner_chanhead, "interprocess subscribe");
 }
 static void receive_subscribe_chanhead_nevermind_release(ngx_int_t sender, subscribe_data_t *d) {
-  ERR("release & nevermind the %V", &d->owner_chanhead->id);
+  ERR("release & nevermind the %V", &d->shm_chid);
   memstore_channel_head_t      *head;
   head = nchan_memstore_find_chanhead(d->shm_chid);
   if(head == NULL || head != d->owner_chanhead) {

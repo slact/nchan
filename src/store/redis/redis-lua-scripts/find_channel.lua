@@ -77,7 +77,7 @@ if redis.call('EXISTS', channel_key) ~= 0 then
       end
     end
   else
-    subscriber_count = tonumber(channel.fake_subscribers) or tonumber(channel.subscribers)
+    subscriber_count = tonumber(ch.fake_subscribers) or tonumber(ch.subscribers)
   end
   
   return {

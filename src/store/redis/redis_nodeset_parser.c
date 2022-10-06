@@ -176,6 +176,10 @@ redis_connect_params_t *parse_info_slaves(redis_node_t *node, const char *info, 
     rcp.hostname = hostname;
     rcp.port = ngx_atoi(port.data, port.len);
     rcp.password = node->connect_params.password;
+    
+    rcp.username.len = 0;
+    rcp.username.data = NULL;
+    
     rcp.peername.len = 0;
     rcp.db = node->connect_params.db;
     
