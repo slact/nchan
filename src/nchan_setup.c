@@ -203,7 +203,7 @@ static char *nchan_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_value(conf->redis.accurate_subscriber_count, prev->redis.accurate_subscriber_count, 0);
   
   ngx_conf_merge_value(conf->redis.stats.enabled, prev->redis.stats.enabled, NGX_CONF_UNSET);
-  //default to unser to enable only if at least 1 stats location is configured
+  //default to unset to enable only if at least 1 stats location is configured
   
   ngx_conf_merge_value(conf->redis.stats.max_detached_time_sec, prev->redis.stats.max_detached_time_sec, NCHAN_REDIS_DEFAULT_STATS_MAX_DETACHED_TIME_SEC);
   

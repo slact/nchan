@@ -2003,7 +2003,7 @@ static ngx_int_t nchan_store_init_redis_loc_conf_postconfig(nchan_loc_conf_t *lc
   assert(rcf->enabled);
   
   //server-scope loc_conf may have some undefined values (because it was never merged with a prev)
-  //thus we must reduntantly check for unser values
+  //thus we must reduntantly check for unset values
   if(rcf->ping_interval == NGX_CONF_UNSET) {
     rcf->ping_interval = NCHAN_REDIS_DEFAULT_PING_INTERVAL_TIME;
   }
