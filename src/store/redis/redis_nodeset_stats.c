@@ -149,7 +149,9 @@ static ngx_int_t redis_stats_request_callback(ngx_int_t statscount, void *d, voi
   }
   
   if(state->waiting_for_reply_count <= 0) {
+    //we're done here
     if(state->stats.stats && state->stats.count > 0) {
+      //move stats data to request's pool
       redis_node_command_stats_t            *stats_in_pool = ngx_palloc(state->pool, sizeof(*stats_in_pool) * state->stats.count);
       if(!stats_in_pool) {
         state->stats.error = "Unable to allocate memory for redis server stats response";
@@ -157,9 +159,11 @@ static ngx_int_t redis_stats_request_callback(ngx_int_t statscount, void *d, voi
         free(state->stats.stats);
         state->stats.stats = NULL;
       }
-      memcpy(stats_in_pool, state->stats.stats, sizeof(*stats_in_pool) * state->stats.count);
-      free(state->stats.stats);
-      state->stats.stats = stats_in_pool;
+      else {
+        memcpy(stats_in_pool, state->stats.stats, sizeof(*stats_in_pool) * state->stats.count);
+        free(state->stats.stats);
+        state->stats.stats = stats_in_pool;
+      }
     }
     
     state->cb(state->stats.error ? NGX_ERROR : NGX_OK, &state->stats, state->pd);

@@ -3082,7 +3082,7 @@ static int nodeset_set_name_alloc(redis_nodeset_t *nodeset) {
     }
   }
   
-  if(name->len == 0) {
+  if(name == NULL || name->len == 0) {
     nodeset->name = nchan_redis_blankname;
     return 1;
   }
