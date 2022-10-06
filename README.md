@@ -1661,7 +1661,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   arguments: 1  
   default: `(none)`  
   context: server, location  
-  > Defines a location as redis statistics endpoint. GET requests to this location produce a JSON response with detailed listings of total Redis command times and number of calls, broken down by node and command type. USeful for making graphs about Redis performance. Can be set with nginx variables.    
+  > Defines a location as redis statistics endpoint. GET requests to this location produce a JSON response with detailed listings of total Redis command times and number of calls, broken down by node and command type. Useful for making graphs about Redis performance. Can be set with nginx variables.    
 
 - **nchan_redis_upstream_stats_disconnected_timeout**  
   arguments: 1  

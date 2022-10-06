@@ -901,7 +901,7 @@ CfCmd.new do
       tags: [ 'redis', 'meta', 'stats' ],
       value: "<upstream_name>",
       default: "(none)",
-      info: "Defines a location as redis statistics endpoint. GET requests to this location produce a JSON response with detailed listings of total Redis command times and number of calls, broken down by node and command type. USeful for making graphs about Redis performance. Can be set with nginx variables."
+      info: "Defines a location as redis statistics endpoint. GET requests to this location produce a JSON response with detailed listings of total Redis command times and number of calls, broken down by node and command type. Useful for making graphs about Redis performance. Can be set with nginx variables."
   
   nchan_redis_upstream_stats_enabled [:upstream],
       :ngx_conf_set_flag_slot,
