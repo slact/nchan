@@ -585,8 +585,6 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
     ns->settings.blacklist.list = NULL;
     ngx_str_t **urlref = nchan_list_append(&ns->urls);
     *urlref = rcf->url.len > 0 ? &rcf->url : &default_redis_url;
-    
-    
   }
   ns->current_reconnect_delay = 0;
   ns->current_cluster_recovery_delay = 0;

@@ -133,8 +133,12 @@ typedef struct {
 #endif
 
 typedef enum {
-   //must start at 0
+  //command codes whose totals are tracked must start at 0
+  
+  //ANY is a catch-all group and not a particular command, so it can be <0
   NCHAN_REDIS_CMD_ANY                             = -1,
+  
+  //trackable command codes begin
   NCHAN_REDIS_CMD_CONNECT                         = 0,
   NCHAN_REDIS_CMD_PUBSUB_SUBSCRIBE                = 1,
   NCHAN_REDIS_CMD_PUBSUB_UNSUBSCRIBE              = 2,
