@@ -160,9 +160,12 @@ typedef enum {
   //NCHAN_REDIS_CMD_ENUM_LAST must be last in this enum. It's the number of commands to track
 } redis_node_cmd_tag_t;
 
+#define NODE_STATS_MAX_NAME_STR_LENGTH 128
+#define NODE_STATS_MAX_ID_STR_LENGTH 65
+
 typedef struct {
-  char                         name[128];
-  char                         id[65];
+  char                         name[NODE_STATS_MAX_NAME_STR_LENGTH];
+  char                         id[NODE_STATS_MAX_ID_STR_LENGTH];
   unsigned                     attached:1;
   time_t                       detached_time; //when did you first stop using?
   nchan_accumulator_t          timings[NCHAN_REDIS_CMD_ENUM_LAST];
