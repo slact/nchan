@@ -463,6 +463,10 @@ redis_node_command_stats_t *redis_node_stats_attach(redis_node_t *node) {
     }
     ngx_snprintf((u_char *)stats->id, sizeof(stats->id), "%V%Z", id);
     ngx_snprintf((u_char *)stats->name, sizeof(stats->name), "%s%Z", name);
+    //no buffer overflows pls
+    stats->id[sizeof(stats->id)-1]='\0';
+    stats->name[sizeof(stats->name)-1]='\0';
+    
     stats->attached = 0;
     stats->detached_time = 0;
     
