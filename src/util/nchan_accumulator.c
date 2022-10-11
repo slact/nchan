@@ -111,9 +111,17 @@ int nchan_accumulator_atomic_update(nchan_accumulator_t *acc, double val) {
 double nchan_accumulator_average(nchan_accumulator_t *acc) {
   switch(acc->type) {
     case ACCUMULATOR_EXP_DECAY_FLOAT:
+      if(acc->data.ed_float.weight == 0) {
+        return 0;
+      }
       return acc->data.ed_float.value / acc->data.ed_float.weight;
+    
     case ACCUMULATOR_SUM:
+      if(acc->data.sum.weight == 0) {
+        return 0;
+      }
       return acc->data.sum.value / acc->data.sum.weight;
+    
     default:
       //not implemented
       return -1;
@@ -164,11 +172,14 @@ int nchan_accumulator_merge(nchan_accumulator_t *dst, nchan_accumulator_t *src) 
       tmp = *src;
       nchan_accumulator_rebase_to_now(dst);
       nchan_accumulator_rebase_to_now(&tmp);
-      dst->data.ed_float.value += tmp.data.ed_float.value;
-      dst->data.ed_float.weight += tmp.data.ed_float.weight;
       if(tmp.data.ed_float.lambda != dst->data.ed_float.lambda) {
+        if(tmp.data.ed_float.weight + dst->data.ed_float.weight == 0) {
+          return 0;
+        }
         dst->data.ed_float.lambda = (dst->data.ed_float.lambda * dst->data.ed_float.weight + tmp.data.ed_float.lambda * tmp.data.ed_float.weight) / (dst->data.ed_float.weight + tmp.data.ed_float.weight);
       }
+      dst->data.ed_float.value += tmp.data.ed_float.value;
+      dst->data.ed_float.weight += tmp.data.ed_float.weight;
       return 1;
     
     case ACCUMULATOR_SUM:
