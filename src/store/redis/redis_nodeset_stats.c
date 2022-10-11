@@ -33,7 +33,7 @@ redis_node_command_stats_t *redis_nodeset_worker_command_stats_alloc(redis_nodes
 
 static void redis_node_merge_stats(redis_node_command_stats_t *dst, redis_node_command_stats_t *src) {
   unsigned i;
-  for(i=0; i<=NCHAN_REDIS_CMD_OTHER; i++) {
+  for(i=0; i<NCHAN_REDIS_CMD_ENUM_LAST; i++) {
     nchan_accumulator_merge(&dst->timings[i], &src->timings[i]);
   }
 }
@@ -467,7 +467,7 @@ redis_node_command_stats_t *redis_node_stats_attach(redis_node_t *node) {
     stats->detached_time = 0;
     
     int i;
-    for(i=0; i<=NCHAN_REDIS_CMD_OTHER; i++) {
+    for(i=0; i<NCHAN_REDIS_CMD_ENUM_LAST; i++) {
       nchan_accumulator_init(&stats->timings[i], ACCUMULATOR_SUM, 0);
     }
   }
@@ -554,7 +554,7 @@ static void node_time_finish(redis_node_t *node, nchan_timequeue_t *tq, redis_no
   }
   ngx_msec_t t = ngx_current_msec - tqtime.time_start;
   
-  assert(cmdtag >= 0 && cmdtag <= NCHAN_REDIS_CMD_OTHER);
+  assert(cmdtag >= 0 && cmdtag < NCHAN_REDIS_CMD_ENUM_LAST);
   node_time_record(node, cmdtag, t);
 }
 
