@@ -23,6 +23,9 @@
 #include <util/nchan_rbtree.h>
 #include <util/nchan_list.h>
 #include <util/nchan_slist.h>
+#include <util/nchan_accumulator.h>
+#include <util/nchan_timequeue.h>
+
 #include "redis_lua_commands.h"
 //#include "store-private.h"
 
@@ -37,7 +40,7 @@
 #define node_log_debug(node, fmt, args...)    node_log((node), NGX_LOG_DEBUG, fmt, ##args)
   
 #define nodeset_log(nodeset, lvl, fmt, args...) \
-  ngx_log_error(lvl, ngx_cycle->log, 0, "nchan: Redis %s: " fmt, (nodeset)->name, ##args)
+  ngx_log_error(lvl, ngx_cycle->log, 0, "nchan: Redis %s %s: " fmt, (nodeset)->name_type, (nodeset)->name, ##args)
 #define nodeset_log_error(nodeset, fmt, args...)    nodeset_log((nodeset), NGX_LOG_ERR, fmt, ##args)
 #define nodeset_log_warning(nodeset, fmt, args...)  nodeset_log((nodeset), NGX_LOG_WARN, fmt, ##args)
 #define nodeset_log_notice(nodeset, fmt, args...)   nodeset_log((nodeset), NGX_LOG_NOTICE, fmt, ##args)
@@ -129,6 +132,44 @@ typedef struct {
 } redis_nodeset_dbg_range_tree_t;
 #endif
 
+typedef enum {
+  //command codes whose totals are tracked must start at 0
+  
+  //ANY is a catch-all group and not a particular command, so it can be <0
+  NCHAN_REDIS_CMD_ANY                             = -1,
+  
+  //trackable command codes begin
+  NCHAN_REDIS_CMD_CONNECT                         = 0,
+  NCHAN_REDIS_CMD_PUBSUB_SUBSCRIBE,
+  NCHAN_REDIS_CMD_PUBSUB_UNSUBSCRIBE,
+  NCHAN_REDIS_CMD_CHANNEL_CHANGE_SUBSCRIBER_COUNT,
+  NCHAN_REDIS_CMD_CHANNEL_DELETE,
+  NCHAN_REDIS_CMD_CHANNEL_FIND,
+  NCHAN_REDIS_CMD_CHANNEL_GET_MESSAGE,
+  NCHAN_REDIS_CMD_CHANNEL_GET_LARGE_MESSAGE,
+  NCHAN_REDIS_CMD_CHANNEL_PUBLISH,
+  NCHAN_REDIS_CMD_CHANNEL_REQUEST_SUBSCRIBER_INFO,
+  NCHAN_REDIS_CMD_CHANNEL_GET_SUBSCRIBER_INFO_ID,
+  NCHAN_REDIS_CMD_CHANNEL_SUBSCRIBE,
+  NCHAN_REDIS_CMD_CHANNEL_UNSUBSCRIBE,
+  NCHAN_REDIS_CMD_CHANNEL_KEEPALIVE,
+  NCHAN_REDIS_CMD_CLUSTER_CHECK,
+  NCHAN_REDIS_CMD_CLUSTER_RECOVER,
+  NCHAN_REDIS_CMD_OTHER,
+  NCHAN_REDIS_CMD_ENUM_LAST
+  //NCHAN_REDIS_CMD_ENUM_LAST must be last in this enum. It's the number of commands to track
+} redis_node_cmd_tag_t;
+
+#define NODE_STATS_MAX_NAME_STR_LENGTH 128
+#define NODE_STATS_MAX_ID_STR_LENGTH 65
+
+typedef struct {
+  char                         name[NODE_STATS_MAX_NAME_STR_LENGTH];
+  char                         id[NODE_STATS_MAX_ID_STR_LENGTH];
+  unsigned                     attached:1;
+  time_t                       detached_time; //when did you first stop using?
+  nchan_accumulator_t          timings[NCHAN_REDIS_CMD_ENUM_LAST];
+} redis_node_command_stats_t;
 
 #define NODESET_MAX_STATUS_MSG_LENGTH 512
 struct redis_nodeset_s {
@@ -138,6 +179,7 @@ struct redis_nodeset_s {
   //  maybe a cluster of masters and their slaves
   //slaves of slaves not included
   char                       *name;
+  char                       *name_type;
   redis_nodeset_status_t      status;
   ngx_event_t                 status_check_ev;
   ngx_time_t                  current_status_start;
@@ -151,6 +193,11 @@ struct redis_nodeset_s {
   ngx_http_upstream_srv_conf_t *upstream;
   nchan_list_t                nodes;
   redis_nodeset_cluster_t     cluster;
+  struct {
+    unsigned                    active:1;
+    ngx_event_t                 cleanup_timer;
+    nchan_list_t                list;
+  }                           node_stats;
   unsigned                    use_spublish:1;
   struct {                    //settings
     nchan_redis_storage_mode_t  storage_mode;
@@ -177,6 +224,10 @@ struct redis_nodeset_s {
     
     ngx_msec_t                  cluster_max_failing_msec;
     ngx_int_t                   load_scripts_unconditionally;
+    struct {
+      time_t                      max_detached_time_sec;
+      ngx_int_t                   enabled;
+    }                           node_stats;
     struct {
       int                         count;
       nchan_redis_ip_range_t     *list;
@@ -244,6 +295,13 @@ struct redis_node_s {
     redisAsyncContext         *pubsub;
     redisContext              *sync;
   }                         ctx;
+  struct {
+    redis_node_command_stats_t *data;
+    struct {         
+      nchan_timequeue_t       cmd;
+      nchan_timequeue_t       pubsub;
+    }                       timequeue;
+  }                         stats;
   int                       pending_commands;
   struct {
     long long                 sent;
@@ -267,8 +325,6 @@ typedef struct {
   redis_node_t           *node;
 } redis_nodeset_slot_range_node_t;
 
-
-
 redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf);
 ngx_int_t nodeset_initialize(char *worker_id, redisCallbackFn *subscribe_handler);
 redis_nodeset_t *nodeset_find(nchan_redis_conf_t *rcf);
@@ -288,6 +344,9 @@ int node_remove_slave_node(redis_node_t *node, redis_node_t *slave);
 
 void node_command_sent(redis_node_t *node);
 void node_command_received(redis_node_t *node);
+
+void node_command_time_start(redis_node_t *node, redis_node_cmd_tag_t cmdtag);
+void node_command_time_finish(redis_node_t *node, redis_node_cmd_tag_t cmdtag);
 
 ngx_int_t nodeset_connect_all(void);
 int nodeset_connect(redis_nodeset_t *ns);
@@ -337,22 +396,29 @@ redis_node_t *nodeset_node_find_by_chanhead(void *chanhead);
 redis_node_t *nodeset_node_pubsub_find_by_chanhead(void *chanhead);
 int node_channel_in_keyspace(redis_node_t *node, void *chanhead);
 
+typedef enum {
+  REDIS_NODE_CTX_COMMAND,
+  REDIS_NODE_CTX_PUBSUB
+} redis_node_ctx_type_t;
 
 #define REDIS_NODE_BATCH_COMMAND_MAX_ARGS 256
 typedef struct {
   redis_node_t    *node;
+  redis_node_ctx_type_t ctxtype;
   redisCallbackFn *callback;
   void            *privdata;
   size_t           cmdc;
   size_t           argc;
   const char      *argv[REDIS_NODE_BATCH_COMMAND_MAX_ARGS];
   size_t           argvlen[REDIS_NODE_BATCH_COMMAND_MAX_ARGS];
+  unsigned         commands_sent;
 } node_batch_command_t;
 
-void node_batch_command_init(node_batch_command_t *batch, redis_node_t *node, redisCallbackFn *fn, void *privdata, unsigned cmd_count, ...);
+void node_batch_command_init(node_batch_command_t *batch, redis_node_t *node, redis_node_ctx_type_t ctxtype, redisCallbackFn *fn, void *privdata, unsigned cmd_count, ...);
 void node_batch_command_send(node_batch_command_t *batch);
 int node_batch_command_add_ngx_str(node_batch_command_t *batch, const ngx_str_t *arg);
 int node_batch_command_add(node_batch_command_t *batch, const char *arg, size_t arglen);
+unsigned node_batch_command_times_sent(node_batch_command_t *batch);
 
 
 
@@ -362,7 +428,42 @@ uint16_t redis_keyslot_from_channel_id(ngx_str_t *chid);
 
 uint16_t redis_crc16(uint16_t crc, const char *buf, int len);
 
-
 const char *node_nickname_cstr(redis_node_t *node);
+
+
+#define REDIS_NODE_CMD_TIMEQUEUE_LENGTH 64
+#define REDIS_NODE_PUBSUB_TIMEQUEUE_LENGTH 64
+
+typedef struct {
+  char                        *error;
+  char                        *name;
+  size_t                       count;
+  redis_node_command_stats_t  *stats;
+} redis_nodeset_command_stats_t;
+
+redis_node_command_stats_t *redis_nodeset_worker_command_stats_alloc(redis_nodeset_t *ns, size_t *node_stats_count);
+ngx_int_t redis_nodeset_global_command_stats_palloc_async(ngx_str_t *nodeset_name, ngx_pool_t *pool, callback_pt cb, void *pd);
+
+
+int redis_nodeset_stats_init(redis_nodeset_t *ns);
+void redis_nodeset_stats_destroy(redis_nodeset_t *ns);
+void redis_node_stats_init(redis_node_t *node);
+redis_node_command_stats_t *redis_node_stats_attach(redis_node_t *node);
+void redis_node_stats_detach(redis_node_t *node);
+void redis_node_stats_destroy(redis_node_t *node);
+redis_node_command_stats_t *redis_node_get_stats(redis_node_t *node);
+
+
+void node_command_time_start(redis_node_t *node, redis_node_cmd_tag_t cmdtag);
+void node_command_time_finish(redis_node_t *node, redis_node_cmd_tag_t cmdtag);
+void node_command_time_finish_relaxed(redis_node_t *node, redis_node_cmd_tag_t cmdtag);
+
+void node_pubsub_time_start(redis_node_t *node, redis_node_cmd_tag_t cmdtag);
+void node_pubsub_time_finish(redis_node_t *node, redis_node_cmd_tag_t cmdtag);
+void node_pubsub_time_finish_relaxed(redis_node_t *node, redis_node_cmd_tag_t cmdtag);
+
+void node_time_record(redis_node_t *node, redis_node_cmd_tag_t cmdtag, ngx_msec_t t);
+
+ngx_chain_t *redis_nodeset_stats_response_body_chain_palloc(redis_nodeset_command_stats_t *nstats , ngx_pool_t *pool);
   
 #endif /* NCHAN_REDIS_NODESET_H */

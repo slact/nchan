@@ -25,11 +25,10 @@
 #define REDIS_LUA_HASH_LENGTH 40
 #define REDIS_NODESET_NOT_READY_MAX_RETRIES 2
 
-//OBSOLETE
-typedef struct {
-  unsigned         min:16;
-  unsigned         max:16;
-} redis_cluster_slot_range_t;
+extern redis_nodeset_t  redis_nodeset[NCHAN_MAX_NODESETS];
+extern int              redis_nodeset_count;
+extern char            *redis_worker_id;
+extern char            *nchan_redis_blankname;
 
 
 typedef struct rdstore_channel_head_s rdstore_channel_head_t;
@@ -106,6 +105,8 @@ ngx_int_t rdstore_initialize_chanhead_reaper(nchan_reaper_t *reaper, char *name)
 ngx_int_t redis_chanhead_gc_add(rdstore_channel_head_t *head, ngx_int_t expire, const char *reason);
 ngx_int_t redis_chanhead_gc_withdraw(rdstore_channel_head_t *head);
 ngx_int_t redis_chanhead_catch_up_after_reconnect(rdstore_channel_head_t *ch);
+ngx_int_t redis_chanhead_set_pubsub_status(rdstore_channel_head_t *head, redis_node_t *node,  redis_pubsub_status_t status);
+
 
 ngx_int_t ensure_chanhead_pubsub_subscribed_if_needed(rdstore_channel_head_t *ch);
 

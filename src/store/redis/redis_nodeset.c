@@ -36,10 +36,10 @@ const nchan_backoff_settings_t NCHAN_REDIS_DEFAULT_CLUSTER_RECOVERY_DELAY = {
 };
 
 
-static redis_nodeset_t  redis_nodeset[NCHAN_MAX_NODESETS];
-static int              redis_nodeset_count = 0;
-static char            *redis_worker_id = NULL;
-static char            *nchan_redis_blankname = "";
+redis_nodeset_t  redis_nodeset[NCHAN_MAX_NODESETS];
+int              redis_nodeset_count = 0;
+char            *redis_worker_id = NULL;
+char            *nchan_redis_blankname = "";
 static redisCallbackFn *redis_subscribe_callback = NULL;
 
 typedef struct {
@@ -55,12 +55,12 @@ static ngx_str_t       default_redis_url = ngx_string(NCHAN_REDIS_DEFAULT_URL);
 static void node_connector_callback(redisAsyncContext *ac, void *rep, void *privdata);
 static int nodeset_cluster_keyslot_space_complete(redis_nodeset_t *ns, int min_node_state);
 static nchan_redis_ip_range_t *node_ip_blacklisted(redis_nodeset_t *ns, redis_connect_params_t *rcp);
-static char *nodeset_name_cstr(redis_nodeset_t *nodeset, char *buf, size_t maxlen);
 static int nodeset_recover_cluster(redis_nodeset_t *ns);
 static int nodeset_reset_cluster_node_info(redis_nodeset_t *ns);
 static void nodeset_cluster_check_event(ngx_event_t *ev);
 static void nodeset_check_status_event(ngx_event_t *ev);
 static void nodeset_check_spublish_availability(redis_nodeset_t *ns);
+static int nodeset_set_name_alloc(redis_nodeset_t *nodeset);
 static int nodeset_link_cluster_node_roles(redis_nodeset_t *nodeset);
 static int nodeset_cluster_node_is_outdated(redis_nodeset_t *ns, cluster_nodes_line_t *l);
 static int node_discover_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l, redis_node_t **known_node);
@@ -352,7 +352,7 @@ static redis_node_dbg_list_t *nodeset_update_debuginfo(redis_nodeset_t *nodeset)
 
 static const char *rcp_cstr(redis_connect_params_t *rcp) {
   static char    buf[512];
-  ngx_snprintf((u_char *)buf, 512, "%V:%d%Z", &rcp->hostname, rcp->port, &rcp->peername);
+  ngx_snprintf((u_char *)buf, 512, "%V:%d%Z", rcp->peername.len > 0 ? &rcp->peername : &rcp->hostname, rcp->port);
   return buf;
 }
 static const char *node_cstr(redis_node_t *node) {
@@ -546,6 +546,10 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
     
     ns->settings.accurate_subscriber_count = scf->redis.accurate_subscriber_count == NGX_CONF_UNSET ? 0 : scf->redis.accurate_subscriber_count;
     
+    ns->settings.node_stats.enabled = scf->redis.stats.enabled == NGX_CONF_UNSET ? nchan_redis_stats_enabled : scf->redis.stats.enabled;
+    
+    ns->settings.node_stats.max_detached_time_sec = scf->redis.stats.max_detached_time_sec == NGX_CONF_UNSET ? NCHAN_REDIS_DEFAULT_STATS_MAX_DETACHED_TIME_SEC : scf->redis.stats.max_detached_time_sec;
+    
     ns->settings.blacklist.count = scf->redis.blacklist_count;
     ns->settings.blacklist.list = scf->redis.blacklist;
     
@@ -587,15 +591,9 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
   ns->cluster.current_check_interval = 0;
   DBG("nodeset created");
   
-  char buf[1024];
-  nodeset_name_cstr(ns, buf, 1024);
-  if(strlen(buf)>0) {
-    ns->name = ngx_alloc(strlen(buf)+1, ngx_cycle->log);
-    strcpy(ns->name, buf);
-  }
-  else {
-    ns->name = nchan_redis_blankname;
-  }
+  nodeset_set_name_alloc(ns);
+  
+  redis_nodeset_stats_init(ns);
   
   if(ns->settings.tls.enabled) {
     //if all the URLs are rediss://, then turn on SSL for the nodeset
@@ -986,6 +984,7 @@ static void nodeset_cluster_check_event_callback(redisAsyncContext *ac, void *re
   int                         epoch;
   const char                 *err = NULL;
   
+  node_command_time_finish(node, NCHAN_REDIS_CMD_CLUSTER_CHECK);
   node_command_received(node);
   
   if(reply == NULL) {
@@ -1026,7 +1025,7 @@ static void nodeset_cluster_check_event_callback(redisAsyncContext *ac, void *re
     goto error;
   }
   
-  int epoch_changed = 0, prev_epoch;
+  int epoch_changed = 0, prev_epoch = 0;
   if(ns->cluster.current_epoch < epoch) {
     epoch_changed = 1;
     prev_epoch = node->cluster.current_epoch;
@@ -1124,6 +1123,7 @@ static void nodeset_cluster_check_event(ngx_event_t *ev) {
   }
   
   node_command_sent(node);
+  node_command_time_start(node, NCHAN_REDIS_CMD_CLUSTER_CHECK);
   
   nodeset_log_debug(ns, "cluster_check event on node %s", node_nickname_cstr(node));
   redisAsyncCommand(node->ctx.cmd, NULL, NULL, "MULTI");
@@ -1181,6 +1181,7 @@ static int nodeset_recover_cluster(redis_nodeset_t *ns) {
   nodeset_log_notice(ns, "Recovering cluster though node %s", node_nickname_cstr(node));
   
   node_command_sent(node);
+  node_command_time_start(node, NCHAN_REDIS_CMD_CLUSTER_RECOVER);
   
   redisAsyncCommand(node->ctx.cmd, NULL, NULL, "MULTI");
   redisAsyncCommand(node->ctx.cmd, NULL, NULL, "CLUSTER INFO");
@@ -1199,6 +1200,7 @@ static void nodeset_recover_cluster_handler(redisAsyncContext *ac, void *rep, vo
   u_char                      errbuf[1024];
   
   node_command_received(node);
+  node_command_time_finish(node, NCHAN_REDIS_CMD_CLUSTER_RECOVER);
   
   ngx_snprintf(errbuf, 1024, "unknown reason%Z");
   
@@ -1420,6 +1422,8 @@ static redis_node_t *nodeset_node_create_with_space(redis_nodeset_t *ns, redis_c
   node->ctx.pubsub = NULL;
   node->ctx.sync = NULL;
   
+  redis_node_stats_init(node);
+  
   assert(nodeset_node_find_by_connect_params(ns, rcp));
   return node;
 }
@@ -1477,7 +1481,10 @@ ngx_int_t nodeset_node_destroy(redis_node_t *node) {
     nchan_abort_oneshot_timer(node->connect_timeout);
     node->connect_timeout = NULL;
   }
+  
+  redis_node_stats_destroy(node);
   nchan_list_remove(&node->nodeset->nodes, node);
+  
   return NGX_OK;
 }
 
@@ -1685,6 +1692,7 @@ static ngx_int_t set_preallocated_peername(redisAsyncContext *ctx, ngx_str_t *ds
 static void node_connector_fail(redis_node_t *node, const char *err) {
   const char  *ctxerr = NULL;
   node->connecting = 0;
+  node_command_time_finish(node, NCHAN_REDIS_CMD_CONNECT);
   if(node->ctx.cmd && node->ctx.cmd->err) {
     ctxerr = node->ctx.cmd->errstr;
   }
@@ -1787,7 +1795,6 @@ int node_disconnect(redis_node_t *node, int disconnected_state) {
   nchan_slist_t *cmd = &node->channels.cmd;
   nchan_slist_t *pubsub = &node->channels.pubsub;
   nchan_slist_t *disconnected_cmd = &node->nodeset->channels.disconnected_cmd;
-  nchan_slist_t *disconnected_pubsub = &node->nodeset->channels.disconnected_pubsub;
   
   for(cur = nchan_slist_first(cmd); cur != NULL; cur = nchan_slist_first(cmd)) {
     nodeset_node_dissociate_chanhead(cur);
@@ -1798,16 +1805,10 @@ int node_disconnect(redis_node_t *node, int disconnected_state) {
     }
   }
   for(cur = nchan_slist_first(pubsub); cur != NULL; cur = nchan_slist_first(pubsub)) {
-    nodeset_node_dissociate_pubsub_chanhead(cur);
-    nchan_slist_append(disconnected_pubsub, cur);
-    cur->redis.slist.in_disconnected_pubsub_list = 1;
-    
-    cur->pubsub_status = REDIS_PUBSUB_UNSUBSCRIBED;
-    
-    if(cur->status == READY) {
-      cur->status = NOTREADY;
-    }
+    redis_chanhead_set_pubsub_status(cur, NULL, REDIS_PUBSUB_UNSUBSCRIBED);
   }
+  
+  redis_node_stats_detach(node);
   
   return 1;
 }
@@ -2344,6 +2345,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       break;
     case REDIS_NODE_FAILED:
     case REDIS_NODE_DISCONNECTED:
+      node_command_time_start(node, NCHAN_REDIS_CMD_CONNECT);
       assert(!node->connect_timeout);
       if((node->ctx.cmd = node_connect_context(node)) == NULL) { //always connect the cmd ctx to the hostname
         return node_connector_fail(node, "failed to open redis async context for cmd");
@@ -2755,6 +2757,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       //NOTE: consent required each time a fallthrough is imposed
       /* fall through */
     case REDIS_NODE_READY:
+      node_command_time_finish(node, NCHAN_REDIS_CMD_CONNECT);
       node_make_ready(node);
       node->connecting = 0;
       nodeset_examine(nodeset);
@@ -2763,12 +2766,14 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
 }
 
 
-void node_batch_command_init(node_batch_command_t *batch, redis_node_t *node, redisCallbackFn *fn, void *privdata, unsigned cmdc, ...) {
+void node_batch_command_init(node_batch_command_t *batch, redis_node_t *node, redis_node_ctx_type_t ctxtype, redisCallbackFn *fn, void *privdata, unsigned cmdc, ...) {
   batch->node = node;
   batch->callback = fn;
   batch->privdata = privdata;
   batch->cmdc = cmdc;
   batch->argc = cmdc;
+  batch->ctxtype = ctxtype;
+  batch->commands_sent = 0;
   
   va_list argp;
   va_start(argp, cmdc);
@@ -2786,7 +2791,17 @@ void node_batch_command_send(node_batch_command_t *batch) {
   if(batch->argc <= batch->cmdc) {
     return;
   }
-  redisAsyncCommandArgv(batch->node->ctx.pubsub, batch->callback, batch->privdata, batch->argc, batch->argv, batch->argvlen);
+  redisAsyncContext *redis = NULL;
+  switch(batch->ctxtype) {
+    case REDIS_NODE_CTX_COMMAND:
+      redis = batch->node->ctx.cmd;
+      break;
+    case REDIS_NODE_CTX_PUBSUB:
+      redis = batch->node->ctx.pubsub;
+      break;
+  }
+  batch->commands_sent++;
+  redisAsyncCommandArgv(redis, batch->callback, batch->privdata, batch->argc, batch->argv, batch->argvlen);
   batch->argc=batch->cmdc;
 }
 
@@ -2804,6 +2819,10 @@ int node_batch_command_add(node_batch_command_t *batch, const char *arg, size_t 
     return 1;
   }
   return 0;
+}
+
+unsigned node_batch_command_times_sent(node_batch_command_t *batch) {
+  return batch->commands_sent;
 }
 
 static void node_make_ready(redis_node_t *node) {
@@ -2828,7 +2847,6 @@ static void node_make_ready(redis_node_t *node) {
     nchan_slist_t *pubsub = &node->channels.pubsub;
     
     nchan_slist_t *disconnected_cmd = &node->nodeset->channels.disconnected_cmd;
-    nchan_slist_t *disconnected_pubsub = &node->nodeset->channels.disconnected_pubsub;
     int uncommanded_count = 0;
     for(cur = nchan_slist_first(cmd); cur != NULL; cur = next) {
       next = nchan_slist_next(cmd, cur);
@@ -2852,7 +2870,7 @@ static void node_make_ready(redis_node_t *node) {
       invalid on the server for unknown reasons.
       So, the response handler is NULL
     */
-    node_batch_command_init(&unsub, node, NULL, NULL, 1, node->nodeset->use_spublish ? "SUNSUBSCRIBE" : "UNSUBSCRIBE");
+    node_batch_command_init(&unsub, node, REDIS_NODE_CTX_PUBSUB, NULL, NULL, 1, node->nodeset->use_spublish ? "SUNSUBSCRIBE" : "UNSUBSCRIBE");
     
     int unsubbed_count = 0;
     for(cur = nchan_slist_first(pubsub); cur != NULL; cur = next) {
@@ -2864,27 +2882,18 @@ static void node_make_ready(redis_node_t *node) {
       if(cur->pubsub_status == REDIS_PUBSUB_UNSUBSCRIBED) {
         continue;
       }
-      if(cur->pubsub_status == REDIS_PUBSUB_SUBSCRIBING) {
-        node_log_notice(node, "channel %V is REDIS_PUBSUB_SUBSCRIBING", &cur->id);
-      }
-      
+      redis_chanhead_set_pubsub_status(cur, NULL, REDIS_PUBSUB_UNSUBSCRIBED);
       unsubbed_count++;
-
+      
       node_batch_command_add_ngx_str(&unsub, &cur->redis.pubsub_id);
-      cur->pubsub_status = REDIS_PUBSUB_UNSUBSCRIBED;
-      
-      nodeset_node_dissociate_pubsub_chanhead(cur);
-      nchan_slist_append(disconnected_pubsub, cur);
-      cur->redis.slist.in_disconnected_pubsub_list = 1;
-      
-      cur->pubsub_status = REDIS_PUBSUB_UNSUBSCRIBED;
-      
-      if(cur->redis.nodeset->settings.storage_mode == REDIS_MODE_BACKUP && cur->status == READY) {
-        cur->status = NOTREADY;
-      }
     }
     if(unsubbed_count > 0) {
       node_batch_command_send(&unsub);
+    }
+    int times_sent = node_batch_command_times_sent(&unsub);
+    int i;
+    for(i=0; i< times_sent; i++) {
+      node_pubsub_time_start(node, NCHAN_REDIS_CMD_PUBSUB_UNSUBSCRIBE);
     }
     
     if(unsubbed_count + uncommanded_count > 0) {
@@ -3056,34 +3065,34 @@ static ngx_int_t nodeset_reconnect_disconnected_channels(redis_nodeset_t *ns) {
   return NGX_OK;
 }
 
-static char* nodeset_name_cstr(redis_nodeset_t *nodeset, char *buf, size_t maxlen) {
-  const char *what = NULL;
+static int nodeset_set_name_alloc(redis_nodeset_t *nodeset) {
   ngx_str_t  *name = NULL;
   if(nodeset->upstream) {
-    what = "upstream";
+    nodeset->name_type = "upstream";
     name = &nodeset->upstream->host;
   }
   else {
+    nodeset->name_type = "host";
     ngx_str_t **url = nchan_list_first(&nodeset->urls);
     if(url && *url) {
       name = *url;
     }
-    what = "host";
   }
   
-  if(what && name) {
-    ngx_snprintf((u_char *)buf, maxlen, "%s %V%Z", what, name);
+  if(name == NULL || name->len == 0) {
+    nodeset->name = nchan_redis_blankname;
+    return 1;
   }
-  else if(what) {
-    ngx_snprintf((u_char *)buf, maxlen, "%s%Z", what);
+  
+  char *namebuf = ngx_alloc(name->len+1, ngx_cycle->log);
+  if(!namebuf) {
+    return 0;
   }
-  else if(name) {
-    ngx_snprintf((u_char *)buf, maxlen, "%V%Z", name);
-  }
-  else {
-    ngx_snprintf((u_char *)buf, maxlen, "node set%Z");
-  }
-  return buf;
+  
+  ngx_snprintf((u_char *)namebuf, name->len+1, "%V%Z", name);
+  nodeset->name = namebuf;
+  
+  return 1;
 }
 
 const char *node_nickname_cstr(redis_node_t *node) {
@@ -3454,6 +3463,7 @@ ngx_int_t nodeset_destroy_all(void) {
   for(i=0; i<redis_nodeset_count; i++) {
     ns = &redis_nodeset[i];
     nodeset_disconnect(ns);
+    redis_nodeset_stats_destroy(ns);
     if(ns->name && ns->name != nchan_redis_blankname) {
       ngx_free(ns->name);
     }
@@ -3595,6 +3605,11 @@ ngx_int_t nodeset_node_associate_chanhead(redis_node_t *node, void *chan) {
 }
 ngx_int_t nodeset_node_associate_pubsub_chanhead(redis_node_t *node, void *chan) {
   rdstore_channel_head_t *ch = chan;
+  
+  if(ch->redis.node.pubsub == node) {
+    //already associated
+    return NGX_OK;
+  }
   assert(ch->redis.node.pubsub == NULL);
   assert(node->nodeset == ch->redis.nodeset);
   assert(ch->redis.slist.in_disconnected_pubsub_list == 0);
@@ -3614,9 +3629,12 @@ ngx_int_t nodeset_node_dissociate_chanhead(void *chan) {
 }
 ngx_int_t nodeset_node_dissociate_pubsub_chanhead(void *chan) {
   rdstore_channel_head_t *ch = chan;
-  if(ch->redis.node.pubsub) {
-    nchan_slist_remove(&ch->redis.node.pubsub->channels.pubsub, ch);
+  
+  if(ch->redis.node.pubsub == NULL) {
+    //already dissociated
+    return NGX_OK;
   }
+  nchan_slist_remove(&ch->redis.node.pubsub->channels.pubsub, ch);
   ch->redis.node.pubsub = NULL; 
   return NGX_OK;
 }
@@ -3693,6 +3711,8 @@ redis_node_t *nodeset_node_pubsub_find_by_chanhead(void *chan) {
   nodeset_node_associate_pubsub_chanhead(node, ch);
   return ch->redis.node.pubsub;
 }
+
+
 
 /*
  * Copyright 2001-2010 Georges Menie (www.menie.org)

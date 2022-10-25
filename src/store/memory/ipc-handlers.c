@@ -11,6 +11,7 @@
 #include <subscribers/memstore_redis.h>
 #include <util/nchan_msg.h>
 #include <util/nchan_benchmark.h>
+#include <store/redis/redis_nodeset.h>
 
 
 //macro black magic, AKA X-Macros
@@ -44,6 +45,8 @@
   L(benchmark_abort) \
   L(benchmark_finish) \
   L(benchmark_finish_reply) \
+  L(redis_stats_request) \
+  L(redis_stats_reply) \
 
 
 
@@ -1143,6 +1146,65 @@ ngx_int_t memstore_ipc_broadcast_benchmark_abort(void) {
 static void receive_benchmark_abort(ngx_int_t sender, benchmark_abort_data_t *d) {
   nchan_benchmark_abort();
 }
+
+/////////// REDIS STATS ////////////////
+typedef struct {
+  void                       *redis_nodeset;
+  size_t                      stats_count;
+  callback_pt                 cb;
+  void                       *pd;
+  redis_node_command_stats_t *stats;
+} redis_stats_request_data_t;
+
+ngx_int_t memstore_ipc_broadcast_redis_stats_request(void *nodeset, callback_pt cb, void *pd) {
+  redis_stats_request_data_t data;
+  DEBUG_MEMZERO(&data);
+  data.redis_nodeset = nodeset;
+  data.stats_count = 0;
+  data.stats = NULL;
+  data.cb = cb;
+  data.pd = pd;
+  return ipc_broadcast_cmd(redis_stats_request, &data);
+}
+
+
+static void receive_redis_stats_request(ngx_int_t sender, redis_stats_request_data_t *data) {
+  redis_node_command_stats_t *stats, *stats_shm;
+  size_t                      statscount;
+  
+  stats = redis_nodeset_worker_command_stats_alloc(data->redis_nodeset, &statscount);
+  
+  if(!stats) {
+    goto fail;
+  }
+  
+  if((stats_shm = shm_alloc(nchan_store_memory_shmem, sizeof(*stats) * statscount, "redis nodeset stats")) == NULL) {
+    goto fail;
+  }
+  
+  data->stats_count = statscount;
+  data->stats = stats_shm;
+  ngx_memcpy(stats_shm, stats, sizeof(*stats) * statscount);
+  ngx_free(stats);
+  ipc_cmd(redis_stats_reply, sender, data);
+  return;
+  
+  
+fail:
+  if(stats) {
+    ngx_free(stats);
+  }
+  data->stats_count = 0;
+  data->stats = NULL;
+  ipc_cmd(redis_stats_reply, sender, data);
+  return;
+}
+
+static void receive_redis_stats_reply(ngx_int_t sender, redis_stats_request_data_t *data) {
+  data->cb(data->stats_count, data->stats, data->pd);
+  shm_free(nchan_store_memory_shmem, data->stats);
+}
+
 
 #define MAKE_ipc_cmd_handler(val) [offsetof(ipc_handlers_t, val)/sizeof(ipc_handler_pt)] = (ipc_handler_pt )receive_ ## val,
 static ipc_handler_pt ipc_cmd_handler[] = {

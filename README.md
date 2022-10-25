@@ -722,6 +722,85 @@ As of version 1.2.0, Nchan uses Redis slaves to load-balance PUBSUB traffic. By 
 
 Also from 1.2.0 onward, [`nchan_redis_optimize_target`](#nchan_redis_optimize_target) can be used to prefer optimizing Redis slaves for CPU or bandwidth. For heavy publishing loads, the tradeoff is very roughly 35% replication bandwidth per slave to 30% CPU load on slaves.
 
+#### Performance Statistics
+
+Redis command statistics were added in version 1.3.5. These provide total number of times different Redis commands were run on, and the total amount of time they took. The stats are for a given Nchan server, *not* all servers connected to a Redis upstream. They are grouped by each upstream, and totaled per node.
+
+```nginx
+http {
+  upstream my_redis_cluster {
+    nchan_redis_server 127.0.0.1;
+  }
+  
+  server {
+    #[...]
+    
+    location ~ /nchan_redis_cluster_stats$ {
+      nchan_redis_upstream_stats my_redis_cluster;
+    }
+  }
+
+```
+
+To get the stats, send a GET request to the stats location.
+
+```console
+  curl http://localhost/nchan_redis_cluster_stats
+```
+
+The response is JSON of the form:
+
+```js
+{
+  "upstream": "redis_cluster",
+  "nodes": [
+    {
+      "address"        : "127.0.0.1:7000",
+      "id"             : "f13d71b1d14d8bf92b72cebee61421294e95dc72",
+      "command_totals" : {
+        "connect"    : {
+          "msec"     : 357,
+          "times"    : 5
+        },
+        "pubsub_subscribe": {
+          "msec"     : 749,
+          "times"    : 37
+        },
+        "pubsub_unsubsribe": {
+          "msec"     : 332,
+          "times"    : 37
+        }
+        /*[...]*/
+      }
+    },
+    {
+      "address"        : "127.0.0.1:7001",
+      "id"             : "b768ecb4152912bed6dc927e8f70284191a79ed7",
+      "command_totals" : {
+        "connect"    : {
+          "msec"     : 4281,
+          "times"    : 5
+        },
+        "pubsub_subscribe": {
+          "msec"     : 309,
+          "times"    : 33
+        },
+        "pubsub_unsubsribe": {
+          "msec"     : 307,
+          "times"    : 30
+        },
+        /*[...]*/
+      },
+    }
+    /*[...]*/
+  ]
+}
+```
+
+For brevity, the entire `command_totals` hash is omitted in this documentation.
+
+<!-- commands: nchan_redis_upstream_stats nchan_redis_upstream_stats_disconnected_timeout nchan_redis_upstream_stats_enabled -->
+
 ## Introspection
 
 There are several ways to see what's happening inside Nchan. These are useful for debugging application integration and for measuring performance.
@@ -1577,6 +1656,24 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   default: `master=1 slave=1`  
   context: upstream  
   > Determines how subscriptions to Redis PUBSUB channels are distributed between master and slave nodes. The higher the number, the more likely that each node of that type will be chosen for each new channel. The weights for slave nodes are cumulative, so an equal 1:1 master:slave weight ratio with two slaves would have a 1/3 chance of picking a master, and 2/3 chance of picking one of the slaves. The weight must be a non-negative integer.    
+
+- **nchan_redis_upstream_stats** `<upstream_name>`  
+  arguments: 1  
+  default: `(none)`  
+  context: server, location  
+  > Defines a location as redis statistics endpoint. GET requests to this location produce a JSON response with detailed listings of total Redis command times and number of calls, broken down by node and command type. Useful for making graphs about Redis performance. Can be set with nginx variables.    
+
+- **nchan_redis_upstream_stats_disconnected_timeout**  
+  arguments: 1  
+  default: `5m`  
+  context: upstream  
+  > Keep stats for disconnected nodes around for this long. Useful for tracking stats for nodes that have intermittent connectivity issues.    
+
+- **nchan_redis_upstream_stats_enabled**  
+  arguments: 1  
+  default: `<yes> if at least 1 redis stats location is configured, otherwise <no>`  
+  context: upstream  
+  > Gather Redis node command timings for this upstream    
 
 - **nchan_redis_url** `<redis-url>`  
   arguments: 1  

@@ -35,6 +35,7 @@
 #include <util/nchan_output.h>
 #include <util/nchan_debug.h>
 #include <util/nchan_stats.h>
+#include <util/nchan_accumulator.h>
 
 extern ngx_pool_t *nchan_pool;
 extern ngx_int_t nchan_worker_processes;
@@ -42,12 +43,14 @@ extern ngx_module_t ngx_nchan_module;
 extern nchan_store_t *nchan_store;
 
 extern int nchan_stub_status_enabled;
+extern int nchan_redis_stats_enabled;
 
 ngx_int_t nchan_stub_status_handler(ngx_http_request_t *r);
 ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r);
 ngx_int_t nchan_group_handler(ngx_http_request_t *r);
 ngx_int_t nchan_subscriber_info_handler(ngx_http_request_t *r);
 ngx_int_t nchan_benchmark_handler(ngx_http_request_t *r);
+ngx_int_t nchan_redis_stats_handler(ngx_http_request_t *r);
 
 time_t nchan_loc_conf_message_timeout(nchan_loc_conf_t *cf);
 ngx_int_t nchan_loc_conf_max_messages(nchan_loc_conf_t *cf);
