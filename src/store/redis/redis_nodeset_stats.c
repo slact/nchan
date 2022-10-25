@@ -209,7 +209,7 @@ static int bufchain_add(ngx_pool_t *pool, ngx_chain_t **first, ngx_chain_t **las
 }
 
 static int compare_nodestats_by_name(const void *v1, const void *v2) {
-  redis_node_command_stats_t *s1 = v1, *s2 = v2;
+  const redis_node_command_stats_t *s1 = v1, *s2 = v2;
   int ret = strcmp(s1->name, s2->name);
   if(ret == 0) {
     ret = strcmp(s1->id, s2->id);
@@ -424,7 +424,7 @@ redis_node_command_stats_t *redis_node_stats_attach(redis_node_t *node) {
     return node->stats.data;
   }
   
-  char          *name = node_nickname_cstr(node);
+  const char    *name = node_nickname_cstr(node);
   ngx_str_t     *id = node->cluster.enabled ? &node->cluster.id : &node->run_id;
   
   redis_node_command_stats_t *stats;
