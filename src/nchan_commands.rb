@@ -909,7 +909,8 @@ CfCmd.new do
       args: 1,
       group: "storage",
       tags: ['redis'],
-      default: "<yes> if at least 1 redis stats location is configured, otherwise <no>",
+      value: [:on, :off],
+      default: "<on> if at least 1 redis stats location is configured, otherwise <off>",
       info: "Gather Redis node command timings for this upstream"
 
   nchan_redis_upstream_stats_disconnected_timeout [:upstream],

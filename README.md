@@ -1669,9 +1669,9 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: upstream  
   > Keep stats for disconnected nodes around for this long. Useful for tracking stats for nodes that have intermittent connectivity issues.    
 
-- **nchan_redis_upstream_stats_enabled**  
+- **nchan_redis_upstream_stats_enabled** `[ on | off ]`  
   arguments: 1  
-  default: `<yes> if at least 1 redis stats location is configured, otherwise <no>`  
+  default: `<on> if at least 1 redis stats location is configured, otherwise <off>`  
   context: upstream  
   > Gather Redis node command timings for this upstream    
 
