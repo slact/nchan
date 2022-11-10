@@ -1,5 +1,5 @@
-#include <math.h>
 #include <nchan_module.h>
+#include <math.h>
 
 #include "nchan_accumulator.h"
 
