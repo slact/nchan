@@ -54,6 +54,7 @@ NGINX_CONF_FILE="nginx.conf"
 NGINX_VER=$($DEVDIR/nginx -v 2>&1)
 NGINX_VER=${NGINX_VER:15}
 redis_version=""
+run_redis=""
 
 for opt in $*; do
   if [[ "$opt" = <-> ]]; then
@@ -61,13 +62,21 @@ for opt in $*; do
   fi
   case $opt in
     noredis|no-redis)
-      no_redis=1;;
+      run_redis="";;
+    redis|redis-server)
+      run_redis=1;;
+    redis-cluster)
+      run_redis=1
+      redis_cluster=1;;
     redis=*)
+      run_redis=1
       redis_version="${opt:6}"
       ;;
     redis-persist)
+      run_redis=1
       persist_redis=1;;
     redis-tls)
+      run_redis=1
       redis_tls=1
       REDIS_OPT=(--port 0 --tls-port $REDIS_PORT --tls-cert-file redis-tls/redis.crt --tls-key-file redis-tls/redis.key --tls-ca-cert-file redis-tls/ca.crt)
       ;;
@@ -165,7 +174,12 @@ _sed_i_conf() {
 
 conf_replace(){
     echo "$1 $2"
-    _sed_i_conf "s|^\( *\)\($1\)\( *\).*|\1\2\3$2;|g"
+    _sed_i_conf "s|^\( *\)\($1\)\(\( \+\).*\)\?;|\1\2 $2;|g"
+}
+
+conf_uncomment_and_replace(){
+    echo "$1 $2"
+    _sed_i_conf "s|^\( *\)#\($1\)\(\( \+\).*\)\?;|\1\2 $2;|g"
 }
 
 _semver_gteq() {
@@ -222,19 +236,31 @@ if [[ ! -z $old_redis_pid ]] && [[ -z $persist_redis ]]; then
   sleep 1
 fi
 #start redis
-if [[ -z $no_redis ]]; then
-  if [[ -z $old_redis_pid ]] || [[ -z $persist_redis ]]; then
-    if [[ -z $persist_redis ]]; then
-      redis${redis_version}-server $REDIS_CONF $REDIS_OPT &
+if [[ ! -z $run_redis ]]; then
+  if [[ ! -z $redis_cluster ]]; then
+    conf_uncomment_and_replace nchan_redis_pass redis_cluster
+    conf_uncomment_and_replace nchan_redis_pass_inheritable on
+    pushd redis_clusterconf >/dev/null
+      ./cluster.sh &
       redis_pid=$!
-    else
-      redis${redis_version}-server $REDIS_CONF $REDIS_OPT --daemonize yes
-      sleep 1
-      redis_pid=$(cat /tmp/redis-pushmodule.pid)
-    fi
-    echo "started redis on port $REDIS_PORT with pid $redis_pid"
+    popd >/dev/null
+    echo "started redis cluster"
   else
-    echo "redis already running on port $REDIS_PORT with pid $old_redis_pid"
+    conf_uncomment_and_replace nchan_redis_pass redis_server
+    conf_uncomment_and_replace nchan_redis_pass_inheritable on
+    if [[ -z $old_redis_pid ]] || [[ -z $persist_redis ]]; then
+      if [[ -z $persist_redis ]]; then
+        redis${redis_version}-server $REDIS_CONF $REDIS_OPT &
+        redis_pid=$!
+      else
+        redis${redis_version}-server $REDIS_CONF $REDIS_OPT --daemonize yes
+        sleep 1
+        redis_pid=$(cat /tmp/redis-pushmodule.pid)
+      fi
+      echo "started redis on port $REDIS_PORT with pid $redis_pid"
+    else
+      echo "redis already running on port $REDIS_PORT with pid $old_redis_pid"
+    fi
   fi
 else
   echo "don't start redis"
@@ -249,7 +275,7 @@ debugger_pids=()
 
 TRAPINT() {
   if [[ -z $persist_redis ]]; then
-    kill $redis_pid
+    kill -$redis_pid
     wait $redis_pid
   fi
   if [[ $debugger == 1 ]]; then
