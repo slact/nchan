@@ -11,6 +11,8 @@ $server_url="http://127.0.0.1:8082"
 $interval = 1
 $jitter=0.2
 $parallel_count = 100
+$pub_url="/pub/"
+$sub_url="/sub/broadcast/"
 
 opt=OptionParser.new do |opts|
   opts.on("--server SERVER (#{$server_url})", "server url."){|v| $server_url=v}
@@ -21,6 +23,8 @@ opt=OptionParser.new do |opts|
     #verbose = true
     Typhoeus::Config.verbose = true
   end
+  opts.on("--pub URL {#{$pub_url}}", "publish url") {|v| $pub_url=v}
+  opts.on("--sub URL {#{$pub_url}}", "subscribe url") {|v| $sub_url=v}
 end
 opt.parse!
 
@@ -68,9 +72,12 @@ end
 class NPipe  
   include Celluloid
   
-  def url(part="")
+  def self.url(part="")
     part=part[1..-1] if part[0]=="/"
     "#{$server_url}/#{part}"
+  end
+  def url(...)
+    self.class.url(...)
   end
   def short_id
     "#{SecureRandom.hex.to_i(16).to_s(36)[0..5]}"
@@ -81,8 +88,8 @@ class NPipe
     @pipe_id=pipe_id
     @id = ("#{@pipe_id}Z1Z#{short_id}")
     @alt_id = ("#{@pipe_id}Z2Z#{short_id}")
-    @pub = NchanTools::Publisher.new url("/pub/#{@id}"), accept: 'text/json', timeout: 1000000
-    @sub = NchanTools::Subscriber.new(url("/sub/#{@id}"), 1, quit_message: 'FIN', client: :eventsource, timeout: 1000000)
+    @pub = NchanTools::Publisher.new url("#{$pub_url}#{@id}"), accept: 'text/json', timeout: 1000000
+    @sub = NchanTools::Subscriber.new(url("#{$sub_url}#{@id}"), 1, quit_message: 'FIN', client: :eventsource, timeout: 1000000)
     @sub.on_message do |msg, bundle| 
       if msg != @inflight
         @tracker.error! "message mismatch: expected \"#{@inflight}\", have \"#{msg}\""
@@ -130,6 +137,10 @@ end
   
 tracker = Tracker.new
 npipes = []
+
+puts "publishing on #{NPipe.url("#{$pub_url}<channel_id>")}"
+puts "subscribing on #{NPipe.url("#{$sub_url}<channel_id>")}"
+
 for n in 1..$parallel_count do
   npipe = NPipe.new tracker, n, $interval, $jitter
   
