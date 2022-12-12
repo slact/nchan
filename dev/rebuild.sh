@@ -244,6 +244,11 @@ if [[ -z $NO_MAKE ]]; then
     exit 1
   fi
   
+  if ! command -v luac 2>&1 > /dev/null; then
+    echo "The Lua compiler (luac) was not found. Please install it before running the rebuild script.";
+    exit 1
+  fi
+
   pushd "${MY_PATH}" >/dev/null
   rdstore_dir=../src/store/redis
   bundle exec hsss \
