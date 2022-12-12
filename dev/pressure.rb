@@ -24,7 +24,7 @@ opt=OptionParser.new do |opts|
     Typhoeus::Config.verbose = true
   end
   opts.on("--pub URL {#{$pub_url}}", "publish url") {|v| $pub_url=v}
-  opts.on("--sub URL {#{$pub_url}}", "subscribe url") {|v| $sub_url=v}
+  opts.on("--sub URL {#{$sub_url}}", "subscribe url") {|v| $sub_url=v}
 end
 opt.parse!
 
