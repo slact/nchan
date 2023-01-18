@@ -1,4 +1,4 @@
-#!/usr/bin/ruby
+#!/usr/bin/env ruby
 require 'securerandom'
 require 'rubygems'
 require 'bundler/setup'

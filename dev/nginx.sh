@@ -20,7 +20,7 @@ VG_MEMCHECK_OPT+=("--num-callers=20")
 #track files
 #VG_MEMCHECK_OPT+=("--track-fds=yes")
 
-
+source $DEVDIR/python_check.sh $DEVDIR
 
 WORKERS=5
 NGINX_DAEMON="off"
@@ -237,17 +237,22 @@ if [[ ! -z $old_redis_pid ]] && [[ -z $persist_redis ]]; then
 fi
 #start redis
 if [[ ! -z $run_redis ]]; then
+  conf_uncomment_and_replace nchan_redis_pass redis_server
+  conf_uncomment_and_replace nchan_redis_pass_inheritable on
   if [[ ! -z $redis_cluster ]]; then
-    conf_uncomment_and_replace nchan_redis_pass redis_cluster
-    conf_uncomment_and_replace nchan_redis_pass_inheritable on
-    pushd redis_clusterconf >/dev/null
-      ./cluster.sh &
-      redis_pid=$!
-    popd >/dev/null
+    REDIS_CLUSTER_LOCATION=local
+    REDIS_CLUSTER_PYCMD="if 1: # force ignore identation
+      import json
+      f = open('redis-cluster/config.json')
+      config = json.load(f)
+      print('redis://%s:%s' % (config['$REDIS_CLUSTER_LOCATION']['ip'], config['$REDIS_CLUSTER_LOCATION']['start_port']))"
+
+    conf_replace nchan_redis_server `python3 -c $REDIS_CLUSTER_PYCMD`
+    pushd redis-cluster
+      python3 cluster_start.py local
+    popd
     echo "started redis cluster"
   else
-    conf_uncomment_and_replace nchan_redis_pass redis_server
-    conf_uncomment_and_replace nchan_redis_pass_inheritable on
     if [[ -z $old_redis_pid ]] || [[ -z $persist_redis ]]; then
       if [[ -z $persist_redis ]]; then
         redis${redis_version}-server $REDIS_CONF $REDIS_OPT &
@@ -277,6 +282,9 @@ TRAPINT() {
   if [[ -z $persist_redis ]]; then
     kill -$redis_pid
     wait $redis_pid
+  fi
+  if [[ ! -z $redis_cluster ]]; then
+    kill `ps -ef | grep redis-server | grep -v grep | awk '{ print $2 }'`
   fi
   if [[ $debugger == 1 ]]; then
     sudo kill $debugger_pids
