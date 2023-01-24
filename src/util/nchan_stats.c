@@ -45,6 +45,7 @@ static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
     if((shstats = shm_calloc(shm, sizeof(*shstats), "root shared data")) == NULL) {
       return NGX_ERROR;
     }
+    zone->data = shstats;
   }
   
   return NGX_OK;

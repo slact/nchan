@@ -13,8 +13,10 @@
 //#define ONE_FAKE_CHANNEL_OWNER 2
 #define MAX_FAKE_WORKERS 5
 #endif
-#include <nchan_version.h>
+#include <ngx_config.h>
+#include <ngx_core.h>
 #include <ngx_http.h>
+#include <nchan_version.h>
 
 //building for old versions
 #ifndef NGX_MAX_INT_T_VALUE
