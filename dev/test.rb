@@ -1778,7 +1778,7 @@ class PubSubTest <  Minitest::Test
   end
   
   def check_websocket_handshake(url, headers, expected_response_code=101, expected_response_body_match=nil)
-    req=Typhoeus::Request.new(url, headers: headers, forbid_reuse: true)
+    req=Typhoeus::Request.new(url, headers: headers, forbid_reuse: true,  timeout: 0.1)
     req.run
     binding.pry if expected_response_code != req.response.response_code
     assert_equal expected_response_code, req.response.response_code
@@ -1926,7 +1926,7 @@ class PubSubTest <  Minitest::Test
     server_min_window_bytes = 10
     (0..30).each do |n|
       ["permessage-deflate; client_max_window_bits", "permessage-deflate; server_max_window_bits", "deflate-frame; max_window_bits"].each do |ext|
-        request = Typhoeus::Request.new url("sub/broadcast/#{short_id}"), method: :GET, forbid_reuse: true, headers: {
+        request = Typhoeus::Request.new url("sub/broadcast/#{short_id}"), method: :GET, forbid_reuse: true, timeout: 0.1, headers: {
           'Upgrade' =>'Websocket',
           'Connection' => 'Upgrade',
           'Sec-WebSocket-Key' => 'BUy97UID2mxgDTFA+6EZHg==',
