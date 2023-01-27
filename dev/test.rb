@@ -1,6 +1,8 @@
 #!/usr/bin/env ruby
 require 'rubygems'
 require 'bundler/setup'
+require 'uri'
+require 'net/http'
 
 require 'minitest'
 require 'minitest/reporters'
@@ -63,8 +65,37 @@ def url(part="")
   "#{$server_url}/#{part}"
 end
 
+Minitest.after_run {
+  system("killall -w nginx redis-server redis-cli 2>/dev/null")
+}
+
 module NchanTools
 class PubSubTest <  Minitest::Test
+  @@first_time = true;
+
+  def initialize(param)
+    if @@first_time then
+      start_nchan
+      @@first_time = false;
+    end
+    super(param)
+  end
+
+  def start_nchan
+    nchan_stub_status_uri = URI(url("nchan_stub_status"))
+    nchan_ready = false
+    system("./nginx.sh redis-cluster > /dev/null 2>&1 &")
+    while !nchan_ready
+        begin
+            res = Net::HTTP.get_response(nchan_stub_status_uri)
+            nchan_ready = res.is_a?(Net::HTTPSuccess)
+        rescue
+        end
+        nchan_ready = res.body.match(/redis connected servers: (\d+)/)[1] == "60" if nchan_ready
+        sleep 1 if !nchan_ready
+    end
+  end
+
   def short_id
     #testinfo = caller_locations(1,1)[0]
     #if testinfo.label == "pubsub"
