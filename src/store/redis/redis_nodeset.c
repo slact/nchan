@@ -1052,6 +1052,9 @@ static void nodeset_cluster_check_event_callback(redisAsyncContext *ac, void *re
   
   for(i=0; i<n; i++) {
     l = &lines[i];
+    if(l->maybe_failed) {
+      nodeset_log_warning(ns, "Ignoring 'fail?' state reported by %V:%d for node %V", &node->connect_params.hostname, node->connect_params.port, &l->address);
+    }
     if(l->failed && nodeset_node_remove_failed(ns, &l->id)) {
       failed_nodes++;
       continue;

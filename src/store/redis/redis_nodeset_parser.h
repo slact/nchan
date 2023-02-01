@@ -28,6 +28,7 @@ typedef struct {
   unsigned       master:1;
   unsigned       noaddr:1;
   unsigned       failed:1;
+  unsigned       maybe_failed:1;
   unsigned       handshake:1;
   unsigned       self:1;
 } cluster_nodes_line_t;
