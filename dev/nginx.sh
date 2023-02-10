@@ -78,7 +78,7 @@ for opt in $*; do
     redis-tls)
       run_redis=1
       redis_tls=1
-      REDIS_OPT=(--port 0 --tls-port $REDIS_PORT --tls-cert-file redis-tls/redis.crt --tls-key-file redis-tls/redis.key --tls-ca-cert-file redis-tls/ca.crt)
+      REDIS_OPT=(--port 0 --tls-port $REDIS_PORT --tls-cert-file redis-tls/redis.crt --tls-key-file redis-tls/redis.key --tls-ca-cert-file redis-tls/ca.crt --tls-auth-clients no)
       ;;
     leak|leakcheck|valgrind|memcheck)
       valgrind=1
@@ -209,6 +209,9 @@ conf_replace "worker_processes" $WORKERS
 conf_replace "daemon" $NGINX_DAEMON
 conf_replace "working_directory" "\"$(pwd)\""
 conf_replace "push_max_reserved_memory" "$MEM"
+if [[ ! -z $redis_tls ]]; then
+  conf_replace "nchan_redis_ssl" "on"
+fi
 if [[ ! -z $CACHE ]]; then
   _sed_i_conf "s|^ *#cachetag.*|${_cacheconf}|g"
   tmpdir=`pwd`"/.tmp"
