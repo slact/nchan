@@ -1,0 +1,17 @@
+{
+    "local": {
+        "shards": 4,
+        "replicas": 2,
+        "auth": false,
+        "ip": "127.0.0.1",
+        "start_port": 6379
+    },
+    "elasticache":{
+        "CacheNodeType":"cache.t3.small",
+        "EngineVersion":"6.2",
+        "ReplicationGroupDescription":"Sample cache with cluster mode enabled",
+        "ReplicationGroupId":"rep-group-1",
+        "NumNodeGroups":4,
+        "ReplicasPerNodeGroup":2
+    }
+}

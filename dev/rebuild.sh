@@ -18,6 +18,8 @@ _extra_config_opt=()
 
 #export WITH_LUA_MODULE=1
 
+source $MY_PATH/python_check.sh $MY_PATH
+
 for opt in $*; do
   case $opt in
     clang)

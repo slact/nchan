@@ -1,6 +1,8 @@
 #!/usr/bin/env ruby
 require 'rubygems'
 require 'bundler/setup'
+require 'uri'
+require 'net/http'
 
 require 'minitest'
 require 'minitest/reporters'
@@ -30,23 +32,36 @@ $default_client=:longpoll
 $omit_longmsg=false
 $verbose=false
 $ordered_tests = false
+$nginx_workers = 5
+$profile = "external"
+$valgrind = ""
 
 extra_opts = []
 orig_args = ARGV.dup
 
 opt=OptionParser.new do |opts|
-  opts.on("--server SERVER (#{$server_url})", "server url."){|v| $server_url=v}
-  opts.on("--default-subscriber TRANSPORT (#{$default_client})", "default subscriber type"){|v| $default_client=v.to_sym}
-  opts.on("--verbose", "set Accept header") do |v| 
-    verbose = true
-    Typhoeus::Config.verbose = true
-  end
-  opts.on("--omit-longmsg", "skip long-message tests"){$omit_longmsg = true}
+  opts.on("--server SERVER (#{$server_url})", "Server url.") {|v| $server_url = v}
+  opts.on("--default-subscriber TRANSPORT (#{$default_client})", "Default subscriber type.") {|v| $default_client = v.to_sym}
+  opts.on("--profile (#{$profile})", "[external|memory|redis-server|redis-cluster]:\n" +
+  <<-HEREDOC
+                                        external: don't start nginx, assume it's already running.
+                                        memory: start nginx in memory-only mode, no redis.
+                                        redis-server: start nginx and a local redis server.
+                                        redis-cluster: start nginx and a local redis cluster.
+  HEREDOC
+  ) {|v| $profile = v}
+  opts.on("--workers N (8)", "Number of workers to pass to nginx.sh.") {|v| $nginx_workers = v.to_i}
+  opts.on("--valgrind", "Start nginx under valgrind? [pass the 'valgrind' option to nginx.sh].") {$valgrind = "valgring"}
+  opts.on("--omit-longmsg", "Skip long-message tests."){$omit_longmsg = true}
   opts.on_tail('-h', '--help', 'Show this message!!!!') do
     puts opts
     raise OptionParser::InvalidOption , "--help"
   end
-  opts.on("--ordered", "order tests alphabetically"){$ordered_tests = true}
+  opts.on("--verbose", "Set Accept header.") do |v|
+    verbose = true
+    Typhoeus::Config.verbose = true
+  end
+  opts.on("--ordered", "Order tests alphabetically."){$ordered_tests = true}
 end
 
 begin
@@ -63,8 +78,39 @@ def url(part="")
   "#{$server_url}/#{part}"
 end
 
+Minitest.after_run {
+  system("killall -w nginx redis-server redis-cli 2>/dev/null") unless $profile == "external"
+}
+
 module NchanTools
 class PubSubTest <  Minitest::Test
+  @@first_time = true;
+
+  def initialize(param)
+    if @@first_time then
+      start_nchan unless $profile == "external"
+      @@first_time = false;
+    end
+    super(param)
+  end
+
+  def start_nchan
+    nchan_stub_status_uri = URI(url("nchan_stub_status"))
+    nchan_ready = false
+    system("./nginx.sh #{$nginx_workers} #{$profile} #{$valgrind} > /dev/null 2>&1 &")
+    redis_workers = ($profile == "redis-cluster" ? 12 : # this number comes from redis-cluster/config.json
+      $profile == "redis-server" ? 1 : 0) * $nginx_workers
+    while !nchan_ready
+        begin
+            res = Net::HTTP.get_response(nchan_stub_status_uri)
+            nchan_ready = res.is_a?(Net::HTTPSuccess)
+        rescue
+        end
+        nchan_ready = res.body.match(/redis connected servers: (\d+)/)[1].to_i == redis_workers if nchan_ready
+        sleep 1 unless nchan_ready
+    end
+  end
+
   def short_id
     #testinfo = caller_locations(1,1)[0]
     #if testinfo.label == "pubsub"
