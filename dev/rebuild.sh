@@ -18,7 +18,10 @@ _extra_config_opt=()
 
 #export WITH_LUA_MODULE=1
 
-source $MY_PATH/python_check.sh $MY_PATH
+if ! bundle check 1>/dev/null 2>/dev/null; then
+   echo "installing missing ruby gems"
+   bundle update
+fi
 
 for opt in $*; do
   case $opt in
