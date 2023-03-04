@@ -1520,9 +1520,15 @@ static void node_discover_slave(redis_node_t *master, redis_connect_params_t *rc
 }
 
 static void node_discover_master(redis_node_t  *slave, redis_connect_params_t *rcp) {
-  redis_node_t *master;
-  if ((master = nodeset_node_find_by_connect_params(slave->nodeset, rcp)) != NULL) {
-      if(master->role != REDIS_NODE_ROLE_MASTER && master->state > REDIS_NODE_GET_INFO) {
+  nchan_redis_ip_range_t  *matched;
+  redis_node_t            *master = NULL;
+
+  if ((matched = node_ip_blacklisted(slave->nodeset, rcp)) != NULL) {
+    node_log_notice(slave, "skipping master %V blacklisted by %V", &rcp->hostname, &matched->str);
+    return;
+  }
+  else if ((master = nodeset_node_find_by_connect_params(slave->nodeset, rcp)) != NULL) {
+      if (master->role != REDIS_NODE_ROLE_MASTER && master->state > REDIS_NODE_GET_INFO) {
         node_log_notice(master, "Node appears to have changed to master -- need to update");
         node_set_role(master, REDIS_NODE_ROLE_UNKNOWN);
         node_disconnect(master, REDIS_NODE_FAILED);
