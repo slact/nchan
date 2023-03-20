@@ -47,6 +47,8 @@
   L(benchmark_finish_reply) \
   L(redis_stats_request) \
   L(redis_stats_reply) \
+  L(redis_conn_ready) \
+  L(redis_conn_ready_reply) \
 
 
 
@@ -1205,6 +1207,35 @@ static void receive_redis_stats_reply(ngx_int_t sender, redis_stats_request_data
   shm_free(nchan_store_memory_shmem, data->stats);
 }
 
+////////// REDIS CONN READY DATA ////////////////
+typedef struct {
+  ngx_int_t                ready;
+  nchan_loc_conf_t        *cf;
+  callback_pt              callback;
+  void                    *privdata;
+} redis_conn_ready_data_t;
+
+ngx_int_t memstore_ipc_send_redis_conn_ready(ngx_int_t dst, nchan_loc_conf_t *cf, callback_pt callback, void* privdata) {
+  DBG("send redis_conn_ready to %i", dst);
+  redis_conn_ready_data_t        data;
+  DEBUG_MEMZERO(&data);
+  data.ready = 0;
+  data.cf = cf;
+  data.callback = callback;
+  data.privdata = privdata;
+
+  return ipc_cmd(redis_conn_ready, dst, &data);
+}
+
+static void receive_redis_conn_ready(ngx_int_t sender, redis_conn_ready_data_t *d) {
+  DBG("received redis_conn_ready request for privdata %p", d->privdata);
+  d->ready = nchan_store_redis_ready(d->cf);
+  ipc_cmd(redis_conn_ready_reply, sender, d);
+}
+
+static void receive_redis_conn_ready_reply(ngx_int_t sender, redis_conn_ready_data_t *d) {
+  d->callback(d->ready, NULL, d->privdata);
+}
 
 #define MAKE_ipc_cmd_handler(val) [offsetof(ipc_handlers_t, val)/sizeof(ipc_handler_pt)] = (ipc_handler_pt )receive_ ## val,
 static ipc_handler_pt ipc_cmd_handler[] = {
