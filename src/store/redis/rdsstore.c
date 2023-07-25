@@ -2673,7 +2673,7 @@ static ngx_int_t nchan_store_request_subscriber_info(ngx_str_t *channel_id, ngx_
   }
   
   node_command_time_start(node, NCHAN_REDIS_CMD_CHANNEL_REQUEST_SUBSCRIBER_INFO);
-  nchan_redis_script(request_subscriber_info, node, &redis_request_subscriber_info_callback, NULL, channel_id, "%i", (int )request_id);
+  nchan_redis_script(request_subscriber_info, node, &redis_request_subscriber_info_callback, NULL, channel_id, "%s %i", nodeset->use_spublish ? "SPUBLISH" : "PUBLISH", (int )request_id);
   
   return NGX_DONE;
 }
