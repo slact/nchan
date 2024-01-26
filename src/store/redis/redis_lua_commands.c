@@ -832,20 +832,21 @@ redis_lua_scripts_t redis_lua_scripts = {
    "\n"
    "return {ch, new_channel}\n"},
 
-  {"request_subscriber_info", "93c500e094dfc5364251854eeac8d4331a0223c0",
-   "--input: keys: [],  values: [ namespace, channel_id, info_response_id ]\n"
+  {"request_subscriber_info", "d0c593df4182f327f432da0161f85bbf51bbad04",
+   "--input: keys: [],  values: [ namespace, channel_id, publish_cmd, info_response_id ]\n"
    "--output: -nothing-\n"
    "\n"
    "local ns = ARGV[1]\n"
    "local channel_id = ARGV[2]\n"
-   "local response_id = tonumber(ARGV[3])\n"
+   "local publish_cmd = ARGV[3]\n"
+   "local response_id = tonumber(ARGV[4])\n"
    "local pubsub = ('%s{channel:%s}:pubsub'):format(ns, channel_id)\n"
    "\n"
    "redis.call('echo', ' ####### REQUEST_SUBSCRIBER_INFO #######')\n"
    "\n"
    "local alert_msgpack =cmsgpack.pack({\"alert\", \"subscriber info\", response_id})\n"
    "\n"
-   "redis.call('PUBLISH', pubsub, alert_msgpack)\n"
+   "redis.call(publish_cmd, pubsub, alert_msgpack)\n"
    "\n"
    "return true\n"},
 
