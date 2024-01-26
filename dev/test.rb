@@ -1214,7 +1214,7 @@ class PubSubTest <  Minitest::Test
     sub2.terminate
   end
   
-  def test_invalid_msgid
+  def test_expired_msgid
     chan_id=short_id
     pub = Publisher.new url("/pub/2_sec_message_timeout/#{chan_id}"), accept: 'text/json'
     
@@ -1241,6 +1241,31 @@ class PubSubTest <  Minitest::Test
     sub2.terminate
     sub.terminate
     
+  end
+  
+  
+  def test_invalid_msgid
+    chan_id=short_id
+    
+    sub = Subscriber.new(url("/sub/broadcast/#{chan_id}?last_event_id=12:0"), 1, timeout: 20)
+    sub.run
+    sleep 0.2
+    sub.terminate
+    
+    
+    sub = Subscriber.new(url("/sub/broadcast/#{chan_id}?last_event_id=1:0"), 1, quit_message: 'FIN', timeout: 20)
+    sub.run
+    sleep 0.2
+    
+    
+    pub = Publisher.new url("/pub/#{chan_id}"), accept: 'text/json'
+    pub.post "HEY"
+    pub.post "FIN"
+    
+    sub.wait
+    
+    verify pub, sub
+    sub.terminate
   end
   
   

@@ -370,42 +370,10 @@ static ngx_int_t spool_fetch_msg_callback(ngx_int_t code, nchan_msg_t *msg, fetc
       break;
       
     case MSG_NOTFOUND:
-      if(spl->fetching_strategy == NCHAN_SPOOL_FETCH_IGNORE_MSG_NOTFOUND) {
-        spool->msg_status = prev_status;
-        break;
-      }
-      /*fallthrough*/
+      spool_nextmsg(spool, &latest_msg_id);
+      break;
     case MSG_EXPIRED:
-      //is this right?
-      //TODO: maybe message-expired notification
-      spool->msg_status = findmsg_status;
-      spool_respond_general(spool, NULL, NGX_HTTP_NO_CONTENT, NULL, 0);
-      nuspool = get_spool(spool->spooler, &oldest_msg_id);
-      if(spool != nuspool) {
-        spool_transfer_subscribers(spool, nuspool, 1);
-        if(spool->reserved == 0) {
-          destroy_spool(spool);
-        }
-        spool_fetch_msg(nuspool);
-      }
-      else if(spool->id.tagcount == 1 && nchan_compare_msgids(&spool->id, &oldest_msg_id) == 0) {
-        // oldest msgid not found or expired. that means there are no messages in this channel, 
-        // so move these subscribers over to the current_msg_spool
-        nuspool = get_spool(spool->spooler, &latest_msg_id);
-        assert(spool != nuspool);
-        spool_transfer_subscribers(spool, nuspool, 1);
-        if(spool->reserved == 0) {
-          destroy_spool(spool);
-        }
-      }
-      else if(spool == &spool->spooler->current_msg_spool) {
-        //sit there and wait, i guess
-        spool->msg_status = MSG_EXPECTED;
-      }
-      else {
-        ERR("Unexpected spool == nuspool during spool fetch_msg_callback. This is weird, please report this to the developers. findmsg_status: %i", findmsg_status);
-        assert(0);
-      }
+      spool_nextmsg(spool, &oldest_msg_id);
       break;
     
     case MSG_PENDING:
