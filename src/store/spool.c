@@ -247,35 +247,33 @@ static ngx_int_t spool_nextmsg(subscriber_pool_t *spool, nchan_msg_id_t *new_las
     ERR("nextmsg id same as curmsg (%V)", msgid_to_str(&spool->id));
     assert(0);
   }
-  else {
-    newspool = !immortal_spool ? find_spool(spl, &new_id) : get_spool(spl, &new_id);
-    
-    if(newspool != NULL) {
-      //move subs to next, already existing spool
-      assert(spool != newspool);
-      spool_transfer_subscribers(spool, newspool, 0);
-      if(!immortal_spool && spool->reserved == 0) destroy_spool(spool);
-    }
-    else {
-      //next spool doesn't exist. reuse this one as the next
-      ngx_rbtree_node_t       *node;
-      assert(!immortal_spool);
-      node = rbtree_node_from_data(spool);
-      rbtree_remove_node(&spl->spoolseed, node);
-      nchan_copy_msg_id(&spool->id, &new_id, NULL);
-      rbtree_insert_node(&spl->spoolseed, node);
-      spool->msg_status = MSG_INVALID;
-      spool->msg = NULL;
-      newspool = spool;
-      
-      /*
-      newspool = get_spool(spl, &new_id);
-      assert(spool != newspool);
-      spool_transfer_subscribers(spool, newspool, 0);
-      destroy_spool(spool);
-      */
-    }
 
+  newspool = !immortal_spool ? find_spool(spl, &new_id) : get_spool(spl, &new_id);
+  
+  if(newspool != NULL) {
+    //move subs to next, already existing spool
+    assert(spool != newspool);
+    spool_transfer_subscribers(spool, newspool, 0);
+    if(!immortal_spool && spool->reserved == 0) destroy_spool(spool);
+  }
+  else {
+    //next spool doesn't exist. reuse this one as the next
+    ngx_rbtree_node_t       *node;
+    assert(!immortal_spool);
+    node = rbtree_node_from_data(spool);
+    rbtree_remove_node(&spl->spoolseed, node);
+    nchan_copy_msg_id(&spool->id, &new_id, NULL);
+    rbtree_insert_node(&spl->spoolseed, node);
+    spool->msg_status = MSG_INVALID;
+    spool->msg = NULL;
+    newspool = spool;
+    
+    /*
+    newspool = get_spool(spl, &new_id);
+    assert(spool != newspool);
+    spool_transfer_subscribers(spool, newspool, 0);
+    destroy_spool(spool);
+    */
     
     if(newspool->non_internal_sub_count > 0 && spl->handlers->use != NULL) {
       spl->handlers->use(spl, spl->handlers_privdata);
@@ -354,7 +352,7 @@ static ngx_int_t spool_fetch_msg_callback(ngx_int_t code, nchan_msg_t *msg, fetc
       // ♫ It's gonna be the future soon ♫
       if(spool->id.time == NCHAN_NTH_MSGID_TIME) {
         //wait for message in the NEWEST_ID spool
-        spool_nextmsg(spool, &latest_msg_id); 
+        spool_nextmsg(spool, &latest_msg_id);
       }
       else {
         spool->msg_status = findmsg_status;
