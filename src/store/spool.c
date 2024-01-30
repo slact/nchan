@@ -301,8 +301,7 @@ static ngx_int_t spool_nextmsg(subscriber_pool_t *spool, nchan_msg_id_t *new_las
 
 static ngx_int_t spool_fetch_msg_callback(ngx_int_t code, nchan_msg_t *msg, fetchmsg_data_t *data) {
   nchan_msg_status_t    findmsg_status = code;
-  nchan_msg_status_t    prev_status;
-  subscriber_pool_t    *spool, *nuspool;
+  subscriber_pool_t    *spool;
   channel_spooler_t    *spl = data->spooler;
   int                   free_msg_id = 1;
   
@@ -334,8 +333,6 @@ static ngx_int_t spool_fetch_msg_callback(ngx_int_t code, nchan_msg_t *msg, fetc
     ngx_free(data);
     return NGX_ERROR;
   }
-  
-  prev_status = spool->msg_status;
   
   switch(findmsg_status) {
     case MSG_FOUND:
