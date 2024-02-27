@@ -2589,27 +2589,29 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       
       if(nchan_cstr_match_line(reply->str, "cluster_enabled:1")) {
         node->cluster.enabled = 1;
+        if(nchan_cstr_match_line(reply->str, "role:master")) {
+          node_set_role(node, REDIS_NODE_ROLE_MASTER);
+          if(!node->cluster.enabled && !node_discover_slaves_from_info_reply(node, reply)) {
+            return node_connector_fail(node, "failed parsing slaves from INFO");
+          }
+        }
+        else if(nchan_cstr_match_line(reply->str, "role:slave")) {
+          redis_connect_params_t   *rcp;
+          node_set_role(node, REDIS_NODE_ROLE_SLAVE);
+          if(!(rcp = parse_info_master(node, reply->str))) {
+            return node_connector_fail(node, "failed parsing master from INFO");
+          }
+          if(!node->cluster.enabled) {
+            node_discover_master(node, rcp);
+          }
+        }
+        else {
+          return node_connector_fail(node, "can't tell if node is master or slave");
+        }
+      } else {
+        node_set_role(node, REDIS_NODE_ROLE_MASTER);
       }
       
-      if(nchan_cstr_match_line(reply->str, "role:master")) {
-        node_set_role(node, REDIS_NODE_ROLE_MASTER);
-        if(!node->cluster.enabled && !node_discover_slaves_from_info_reply(node, reply)) {
-          return node_connector_fail(node, "failed parsing slaves from INFO");
-        }
-      }
-      else if(nchan_cstr_match_line(reply->str, "role:slave")) {
-        redis_connect_params_t   *rcp;
-        node_set_role(node, REDIS_NODE_ROLE_SLAVE);
-        if(!(rcp = parse_info_master(node, reply->str))) {
-          return node_connector_fail(node, "failed parsing master from INFO");
-        }
-        if(!node->cluster.enabled) {
-          node_discover_master(node, rcp);
-        }
-      }
-      else {
-        return node_connector_fail(node, "can't tell if node is master or slave");
-      }
       node->state++;
       /* fall through */
     case REDIS_NODE_PUBSUB_GET_INFO:
