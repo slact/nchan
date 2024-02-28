@@ -1495,7 +1495,7 @@ static void node_discover_slave(redis_node_t *master, redis_connect_params_t *rc
   redis_node_t    *slave;
   if((slave = nodeset_node_find_by_connect_params(master->nodeset, rcp))!= NULL) {
     //we know about it already
-    if(slave->role != REDIS_NODE_ROLE_SLAVE && slave->state > REDIS_NODE_GET_INFO) {
+    if(slave->role != REDIS_NODE_ROLE_SLAVE && slave->state > REDIS_NODE_GETTING_INFO) {
       node_log_notice(slave, "Node appears to have changed to slave -- need to update");
       node_set_role(slave, REDIS_NODE_ROLE_UNKNOWN);
       node_disconnect(slave, REDIS_NODE_FAILED);
@@ -1522,7 +1522,7 @@ static void node_discover_slave(redis_node_t *master, redis_connect_params_t *rc
 static void node_discover_master(redis_node_t  *slave, redis_connect_params_t *rcp) {
   redis_node_t *master;
   if ((master = nodeset_node_find_by_connect_params(slave->nodeset, rcp)) != NULL) {
-      if(master->role != REDIS_NODE_ROLE_MASTER && master->state > REDIS_NODE_GET_INFO) {
+      if(master->role != REDIS_NODE_ROLE_MASTER && master->state > REDIS_NODE_GETTING_INFO) {
         node_log_notice(master, "Node appears to have changed to master -- need to update");
         node_set_role(master, REDIS_NODE_ROLE_UNKNOWN);
         node_disconnect(master, REDIS_NODE_FAILED);
