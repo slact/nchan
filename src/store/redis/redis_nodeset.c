@@ -1733,9 +1733,16 @@ int node_connect(redis_node_t *node) {
 }
 
 int node_disconnect(redis_node_t *node, int disconnected_state) {
+  assert(disconnected_state <= REDIS_NODE_DISCONNECTED);
+  
+  if(node->connecting) {
+    node_connector_fail(node, NULL);
+    assert(node->state == REDIS_NODE_FAILED); //this is what node_connector_fail should have done
+    node->state = disconnected_state;
+    return 1;
+  }
   ngx_int_t prev_state = node->state;
   node->state = disconnected_state;
-  node->connecting = 0;
   redisAsyncContext *ac;
   redisContext      *c;
   if(node->connect_timeout) {
@@ -2341,6 +2348,11 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
   node_log_debug(node, "node_connector_callback state %d", node->state);
   ngx_str_t                   rest;
   redis_lua_script_t         *scripts = (redis_lua_script_t *)&redis_lua_scripts;
+  
+  if(!node->connecting) {
+    //must have been called during a disconnect cleanup callback
+    return;
+  }
   
   switch(node->state) {
     case REDIS_NODE_CONNECTION_TIMED_OUT:
