@@ -337,9 +337,9 @@ int node_disconnect(redis_node_t *node, int disconnected_state);
 int node_connect(redis_node_t *node);
 redisContext *node_connect_sync_context(redis_node_t *node);
 void node_set_role(redis_node_t *node, redis_node_role_t role);
-int node_set_master_node(redis_node_t *node, redis_node_t *master);
+
+int node_set_master_slave_relationship(redis_node_t *master, redis_node_t *slave);
 redis_node_t *node_find_slave_node(redis_node_t *node, redis_node_t *slave);
-int node_add_slave_node(redis_node_t *node, redis_node_t *slave);
 int node_remove_slave_node(redis_node_t *node, redis_node_t *slave);
 
 void node_command_sent(redis_node_t *node);

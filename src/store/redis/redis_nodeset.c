@@ -659,8 +659,7 @@ static int node_transfer_slaves(redis_node_t *src, redis_node_t *dst) {
   int transferred = 0;
   redis_node_t  **cur;
   for(cur = nchan_list_first(&src->peers.slaves); cur != NULL; cur = nchan_list_next(cur)) {
-    node_set_master_node(*cur, dst);
-    node_add_slave_node(dst, *cur); //won't be added if it's already there
+    node_set_master_slave_relationship(dst, *cur);
     transferred++;
   }
   return transferred;
@@ -875,8 +874,7 @@ static int nodeset_link_cluster_node_roles(redis_nodeset_t *ns) {
         return 0;
       }
       
-      node_set_master_node(cur, master); //this is idempotent
-      node_add_slave_node(master, cur);  //so is this
+      node_set_master_slave_relationship(master, cur);
     }
   }
   return 1;
@@ -1491,63 +1489,43 @@ ngx_int_t nodeset_node_destroy(redis_node_t *node) {
   return NGX_OK;
 }
 
-static void node_discover_slave(redis_node_t *master, redis_connect_params_t *rcp) {
-  redis_node_t    *slave;
-  if((slave = nodeset_node_find_by_connect_params(master->nodeset, rcp))!= NULL) {
-    //we know about it already
-    if(slave->role != REDIS_NODE_ROLE_SLAVE && slave->state > REDIS_NODE_GET_INFO) {
-      node_log_notice(slave, "Node appears to have changed to slave -- need to update");
-      node_set_role(slave, REDIS_NODE_ROLE_UNKNOWN);
-      node_disconnect(slave, REDIS_NODE_FAILED);
-      node_connect(slave);
-    }
-    //assert(slave->peers.master == master);
-  }
-  else {
-    
-    
-    slave = nodeset_node_create_with_connect_params(master->nodeset, rcp);
-    slave->discovered = 1;
-    node_set_role(slave, REDIS_NODE_ROLE_SLAVE);
-    node_log_notice(master, "Discovering own slave %s", rcp_cstr(rcp));
-  }
-  node_set_master_node(slave, master); //this is idempotent
-  node_add_slave_node(master, slave);  //so is this
-  //try to connect
-  if(slave->state <= REDIS_NODE_DISCONNECTED) {
-    node_connect(slave);
-  }
-}
-
-static void node_discover_master(redis_node_t  *slave, redis_connect_params_t *rcp) {
-  nchan_redis_ip_range_t  *matched;
-  redis_node_t            *master = NULL;
-
-  if ((matched = node_ip_blacklisted(slave->nodeset, rcp)) != NULL) {
-    node_log_notice(slave, "skipping master %V blacklisted by %V", &rcp->hostname, &matched->str);
+static void node_discover(redis_node_t *source, redis_connect_params_t *rcp, redis_node_role_t role) {
+  assert(role == REDIS_NODE_ROLE_SLAVE || role == REDIS_NODE_ROLE_MASTER);
+  
+  nchan_redis_ip_range_t    *matched;
+  redis_node_t              *discovered_node = NULL;
+  
+  if ((matched = node_ip_blacklisted(source->nodeset, rcp)) != NULL) {
+    node_log_notice(source, "skipping discovered %s %V blacklisted by %V", node_role_cstr(role), &rcp->hostname, &matched->str);
     return;
   }
-  else if ((master = nodeset_node_find_by_connect_params(slave->nodeset, rcp)) != NULL) {
-      if (master->role != REDIS_NODE_ROLE_MASTER && master->state > REDIS_NODE_GET_INFO) {
-        node_log_notice(master, "Node appears to have changed to master -- need to update");
-        node_set_role(master, REDIS_NODE_ROLE_UNKNOWN);
-        node_disconnect(master, REDIS_NODE_FAILED);
-        node_connect(master);
-      }
-    //assert(node_find_slave_node(master, slave));
-    //node_log_notice(slave, "Discovering master %s... already known", rcp_cstr(rcp));
+  
+  if((discovered_node = nodeset_node_find_by_connect_params(source->nodeset, rcp))!= NULL) {
+    //we know about it already
+    if(discovered_node->role != role && discovered_node->state > REDIS_NODE_GET_INFO) {
+      node_log_notice(discovered_node, "Node appears to have changed to %s -- need to update", node_role_cstr(role));
+      node_set_role(discovered_node, REDIS_NODE_ROLE_UNKNOWN);
+      node_disconnect(discovered_node, REDIS_NODE_FAILED);
+      node_connect(discovered_node);
+    }
   }
   else {
-    master = nodeset_node_create_with_connect_params(slave->nodeset, rcp);
-    master->discovered = 1;
-    node_set_role(master, REDIS_NODE_ROLE_MASTER);
-    node_log_notice(slave, "Discovering own master %s", rcp_cstr(rcp));
+    discovered_node = nodeset_node_create_with_connect_params(source->nodeset, rcp);
+    discovered_node->discovered = 1;
+    node_set_role(discovered_node, role);
+    node_log_notice(source, "Discovering own %s %s", node_role_cstr(role), rcp_cstr(rcp));
   }
-  node_set_master_node(slave, master);
-  node_add_slave_node(master, slave);
-  //try to connect
-  if(master->state <= REDIS_NODE_DISCONNECTED) {
-    node_connect(master);
+  
+  if(role == REDIS_NODE_ROLE_MASTER) {
+    node_set_master_slave_relationship(discovered_node, source);
+  }
+  else {
+    node_set_master_slave_relationship(source, discovered_node);
+  }
+  
+    //try to connect
+  if(discovered_node->state <= REDIS_NODE_DISCONNECTED && !discovered_node->connecting) {
+    node_connect(discovered_node);
   }
 }
 
@@ -1860,13 +1838,6 @@ void node_set_role(redis_node_t *node, redis_node_role_t role) {
   }
 }
 
-int node_set_master_node(redis_node_t *node, redis_node_t *master) {
-  if(node->peers.master && node->peers.master != master) {
-    node_remove_slave_node(master, node);
-  }
-  node->peers.master = master;
-  return 1;
-}
 redis_node_t *node_find_slave_node(redis_node_t *node, redis_node_t *slave) {
   redis_node_t **cur;
   for(cur = nchan_list_first(&node->peers.slaves); cur != NULL; cur = nchan_list_next(cur)) {
@@ -1876,15 +1847,25 @@ redis_node_t *node_find_slave_node(redis_node_t *node, redis_node_t *slave) {
   }
   return NULL;
 }
-int node_add_slave_node(redis_node_t *node, redis_node_t *slave) {
-  if(!node_find_slave_node(node, slave)) {
-    redis_node_t **slaveref;
-    slaveref = nchan_list_append(&node->peers.slaves);
-    *slaveref = slave;
-    return 1;
+
+int node_set_master_slave_relationship(redis_node_t *master, redis_node_t *slave) {
+  
+  //set the slave's master
+  if(slave->peers.master && slave->peers.master != master) {
+    node_remove_slave_node(master, slave);
   }
+  slave->peers.master = master;
+  
+  //add slave to master's list of slaves. idempotently, of course
+  if(!node_find_slave_node(master, slave)) {
+    redis_node_t **slaveref;
+    slaveref = nchan_list_append(&master->peers.slaves);
+    *slaveref = slave;
+  }
+  
   return 1;
 }
+
 int node_remove_slave_node(redis_node_t *node, redis_node_t *slave) {
   if(!node_find_slave_node(node, slave)) {
     nchan_list_remove(&node->peers.slaves, slave);
@@ -2174,7 +2155,7 @@ static int node_discover_slaves_from_info_reply(redis_node_t *node, redisReply *
       nodeset_log_notice(node->nodeset, "Skipping slave node %V blacklisted by %V", &rcp->hostname, &matched->str);
     }
     else {
-      node_discover_slave(node, &rcp[i]);
+      node_discover(node, &rcp[i], REDIS_NODE_ROLE_SLAVE);
     }
   }
   return 1;
@@ -2610,7 +2591,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
           return node_connector_fail(node, "failed parsing master from INFO");
         }
         if(!node->cluster.enabled) {
-          node_discover_master(node, rcp);
+          node_discover(node, rcp, REDIS_NODE_ROLE_MASTER);
         }
       }
       else {
