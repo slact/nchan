@@ -287,7 +287,7 @@ void nchan_subscriber_timeout_ev_handler(ngx_event_t *ev) {
 #if FAKESHARD
   memstore_fakeprocess_push(sub->owner);
 #endif
-  sub->dequeue_after_response = 1;
+  //sub->dequeue_after_response = 1;  //see https://github.com/slact/nchan/pull/591
   sub->fn->respond_status(sub, NGX_HTTP_REQUEST_TIMEOUT, &NCHAN_HTTP_STATUS_408, NULL);
 #if FAKESHARD
   memstore_fakeprocess_pop();
