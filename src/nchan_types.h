@@ -533,6 +533,11 @@ typedef struct {
   ngx_str_t     password;
   ngx_int_t     db;
   ngx_int_t     use_tls;
+  enum {
+    REDIS_FORCED_ROLE_NONE = 0,
+    REDIS_FORCED_ROLE_MASTER,
+    REDIS_FORCED_ROLE_SLAVE
+  }             forced_role;
 } redis_connect_params_t;
 
 #endif  /* NCHAN_TYPES_H */
