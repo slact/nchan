@@ -1591,11 +1591,12 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: upstream  
   > When `nchan_redis_retry_commands` is on, the maximum time a command will stayed queued to be retried.    
 
-- **nchan_redis_server** `<redis-url>`  
-  arguments: 1  
+- **nchan_redis_server** `<redis-url> <optional-forced-role>`  
+  arguments: 1 - 2  
+  default: `<redis-url>`  
   context: upstream  
-  > Used in upstream { } blocks to set redis servers. Redis url is in the form 'redis://:password@hostname:6379/0'. Shorthands 'host:port' or 'host' are permitted.    
-  [more details](#connecting-to-a-redis-server)  
+  > Used in upstream { } blocks to set redis servers. Redis url is in the form 'redis://:password@hostname:6379/0'. Shorthands 'host:port' or 'host' are permitted. A role may optionally be provided as well to force a server to be treated as 'master' or 'slave'.  
+  >       uri:     
 
 - **nchan_redis_ssl** `[ on | off ]`  
   arguments: 1  

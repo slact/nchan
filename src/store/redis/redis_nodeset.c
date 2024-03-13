@@ -2578,15 +2578,46 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
         node->cluster.enabled = 1;
       }
       
-      if(nchan_cstr_match_line(reply->str, "role:master")) {
+      ngx_str_t found_role;
+      nchan_get_rest_of_line_in_cstr(reply->str, "role:", &found_role);
+      if(cp->forced_role == REDIS_FORCED_ROLE_MASTER) {
+        if(!nchan_strmatch(&found_role, 1, "master")) {
+          node_log_notice(node, "overriding redis role to \"master\" instead of \"%V\"", &found_role);
+        }
+        else {
+          node_log_notice(node, "setting redis role to \"master\"");
+        }
         node_set_role(node, REDIS_NODE_ROLE_MASTER);
+      }
+      else if(cp->forced_role == REDIS_FORCED_ROLE_SLAVE) {
+        if(!nchan_strmatch(&found_role, 1, "slave")) {
+          node_log_notice(node, "overriding redis role to \"slave\" instead of \"%V\"", &found_role);
+        }
+        else {
+          node_log_notice(node, "setting redis role to \"slave\"");
+        }
+        node_set_role(node, REDIS_NODE_ROLE_SLAVE);
+      }
+      else {
+        if(nchan_strmatch(&found_role, 1, "master")) {
+          node_set_role(node, REDIS_NODE_ROLE_MASTER);
+          
+        }
+        else if(nchan_strmatch(&found_role, 1, "slave")) {
+          node_set_role(node, REDIS_NODE_ROLE_SLAVE);
+        }
+        else {
+          return node_connector_fail(node, "can't tell if node is master or slave");
+        }
+      }
+      
+      if(node->role == REDIS_NODE_ROLE_MASTER) {
         if(!node->cluster.enabled && !node_discover_slaves_from_info_reply(node, reply)) {
           return node_connector_fail(node, "failed parsing slaves from INFO");
         }
       }
-      else if(nchan_cstr_match_line(reply->str, "role:slave")) {
-        redis_connect_params_t   *rcp;
-        node_set_role(node, REDIS_NODE_ROLE_SLAVE);
+      else if(node->role == REDIS_NODE_ROLE_SLAVE) {
+          redis_connect_params_t   *rcp;
         if(!(rcp = parse_info_master(node, reply->str))) {
           return node_connector_fail(node, "failed parsing master from INFO");
         }
@@ -2594,9 +2625,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
           node_discover(node, rcp, REDIS_NODE_ROLE_MASTER);
         }
       }
-      else {
-        return node_connector_fail(node, "can't tell if node is master or slave");
-      }
+      
       node->state++;
       /* fall through */
     case REDIS_NODE_PUBSUB_GET_INFO:
