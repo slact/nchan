@@ -301,6 +301,9 @@ static int nchan_strmatch_va_list(ngx_str_t *val, ngx_int_t n, va_list args) {
   ngx_int_t i;
   for(i=0; i<n; i++) {
     match = va_arg(args, u_char *);
+    if(val->len == 0 && strlen((char *)match) > 0) {
+      return 0;
+    }
     if(ngx_strncasecmp(val->data, match, val->len)==0) {
       return 1;
     }

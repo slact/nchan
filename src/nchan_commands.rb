@@ -447,8 +447,10 @@ CfCmd.new do
       :loc_conf,
       group: "storage",
       tags: ['redis'],
-      value: "<redis-url>",
-      info: "Used in upstream { } blocks to set redis servers. Redis url is in the form 'redis://:password@hostname:6379/0'. Shorthands 'host:port' or 'host' are permitted.",
+      args: 1..2,
+      value: "<redis-url> <optional-forced-role>",
+      default: "<redis-url>",
+      info: "Used in upstream { } blocks to set redis servers. Redis url is in the form 'redis://:password@hostname:6379/0'. Shorthands 'host:port' or 'host' are permitted. A role may optionally be provided as well to force a server to be treated as 'master' or 'slave'.
       uri: "#connecting-to-a-redis-server"
   
   nchan_redis_storage_mode [:main, :srv, :upstream, :loc], 

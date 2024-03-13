@@ -1442,6 +1442,7 @@ static char *ngx_conf_upstream_redis_server(ngx_conf_t *cf, ngx_command_t *cmd, 
   nchan_loc_conf_t                    *lcf = conf;
   uscf = ngx_http_conf_get_module_srv_conf(cf, ngx_http_upstream_module);  
   nchan_srv_conf_t                    *scf = NULL;
+  ngx_str_t                           server_name;
   scf = ngx_http_conf_upstream_srv_conf(uscf, ngx_nchan_module);
   if(scf->upstream_nchan_loc_conf) {
     assert(scf->upstream_nchan_loc_conf == lcf);
@@ -1463,13 +1464,35 @@ static char *ngx_conf_upstream_redis_server(ngx_conf_t *cf, ngx_command_t *cmd, 
   if(!nchan_store_redis_validate_url(&value[1])) {
     return "url is invalid";
   }
+  if(cf->args->nelts <= 2) {
+    server_name = value[1];
+  }
+  else {
+    ngx_str_t *forced_role = &value[2];
+    
+    if(nchan_strmatch(forced_role, 1, "master")) {
+      //good.
+    }
+    else if(nchan_strmatch(forced_role, 2, "slave", "replica")) {
+      ngx_str_t slave = ngx_string("slave");
+      forced_role = &slave;
+    }
+    else {
+      return "invalid redis server role";
+    }
+    
+    size_t combined_length = value[1].len + 1 + value[2].len + 1;
+    server_name.data = ngx_pcalloc(cf->pool, combined_length);
+    assert(server_name.data);
+    server_name.len = ngx_snprintf(server_name.data, combined_length, "%V %V%Z", &value[1], &value[2]) - server_name.data;
+  }
   
   ngx_memzero(usrv, sizeof(*usrv));
 #if nginx_version >= 1007002
-  usrv->name = value[1];
+  usrv->name = server_name;
 #endif
   usrv->addrs = ngx_pcalloc(cf->pool, sizeof(ngx_addr_t));
-  usrv->addrs->name = value[1];
+  usrv->addrs->name = server_name;
   
   uscf->peer.init_upstream = nchan_upstream_dummy_roundrobin_init;
   return NGX_CONF_OK;

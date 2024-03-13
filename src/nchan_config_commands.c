@@ -357,7 +357,7 @@ static ngx_command_t  nchan_commands[] = {
     NULL } ,
 
   { ngx_string("nchan_redis_server"),
-    NGX_HTTP_UPS_CONF|NGX_CONF_TAKE1,
+    NGX_HTTP_UPS_CONF|NGX_CONF_TAKE1|NGX_CONF_TAKE2,
     ngx_conf_upstream_redis_server,
     NGX_HTTP_LOC_CONF_OFFSET,
     0,
