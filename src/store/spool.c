@@ -247,33 +247,35 @@ static ngx_int_t spool_nextmsg(subscriber_pool_t *spool, nchan_msg_id_t *new_las
     ERR("nextmsg id same as curmsg (%V)", msgid_to_str(&spool->id));
     assert(0);
   }
-
-  newspool = !immortal_spool ? find_spool(spl, &new_id) : get_spool(spl, &new_id);
-  
-  if(newspool != NULL) {
-    //move subs to next, already existing spool
-    assert(spool != newspool);
-    spool_transfer_subscribers(spool, newspool, 0);
-    if(!immortal_spool && spool->reserved == 0) destroy_spool(spool);
-  }
   else {
-    //next spool doesn't exist. reuse this one as the next
-    ngx_rbtree_node_t       *node;
-    assert(!immortal_spool);
-    node = rbtree_node_from_data(spool);
-    rbtree_remove_node(&spl->spoolseed, node);
-    nchan_copy_msg_id(&spool->id, &new_id, NULL);
-    rbtree_insert_node(&spl->spoolseed, node);
-    spool->msg_status = MSG_INVALID;
-    spool->msg = NULL;
-    newspool = spool;
+    newspool = !immortal_spool ? find_spool(spl, &new_id) : get_spool(spl, &new_id);
     
-    /*
-    newspool = get_spool(spl, &new_id);
-    assert(spool != newspool);
-    spool_transfer_subscribers(spool, newspool, 0);
-    destroy_spool(spool);
-    */
+    if(newspool != NULL) {
+      //move subs to next, already existing spool
+      assert(spool != newspool);
+      spool_transfer_subscribers(spool, newspool, 0);
+      if(!immortal_spool && spool->reserved == 0) destroy_spool(spool);
+    }
+    else {
+      //next spool doesn't exist. reuse this one as the next
+      ngx_rbtree_node_t       *node;
+      assert(!immortal_spool);
+      node = rbtree_node_from_data(spool);
+      rbtree_remove_node(&spl->spoolseed, node);
+      nchan_copy_msg_id(&spool->id, &new_id, NULL);
+      rbtree_insert_node(&spl->spoolseed, node);
+      spool->msg_status = MSG_INVALID;
+      spool->msg = NULL;
+      newspool = spool;
+      
+      /*
+      newspool = get_spool(spl, &new_id);
+      assert(spool != newspool);
+      spool_transfer_subscribers(spool, newspool, 0);
+      destroy_spool(spool);
+      */
+    }
+
     
     if(newspool->non_internal_sub_count > 0 && spl->handlers->use != NULL) {
       spl->handlers->use(spl, spl->handlers_privdata);
@@ -301,7 +303,8 @@ static ngx_int_t spool_nextmsg(subscriber_pool_t *spool, nchan_msg_id_t *new_las
 
 static ngx_int_t spool_fetch_msg_callback(ngx_int_t code, nchan_msg_t *msg, fetchmsg_data_t *data) {
   nchan_msg_status_t    findmsg_status = code;
-  subscriber_pool_t    *spool;
+  nchan_msg_status_t    prev_status;
+  subscriber_pool_t    *spool, *nuspool;
   channel_spooler_t    *spl = data->spooler;
   int                   free_msg_id = 1;
   
@@ -334,6 +337,8 @@ static ngx_int_t spool_fetch_msg_callback(ngx_int_t code, nchan_msg_t *msg, fetc
     return NGX_ERROR;
   }
   
+  prev_status = spool->msg_status;
+  
   switch(findmsg_status) {
     case MSG_FOUND:
       spool->msg_status = findmsg_status;
@@ -349,7 +354,7 @@ static ngx_int_t spool_fetch_msg_callback(ngx_int_t code, nchan_msg_t *msg, fetc
       // ♫ It's gonna be the future soon ♫
       if(spool->id.time == NCHAN_NTH_MSGID_TIME) {
         //wait for message in the NEWEST_ID spool
-        spool_nextmsg(spool, &latest_msg_id);
+        spool_nextmsg(spool, &latest_msg_id); 
       }
       else {
         spool->msg_status = findmsg_status;
@@ -367,10 +372,42 @@ static ngx_int_t spool_fetch_msg_callback(ngx_int_t code, nchan_msg_t *msg, fetc
       break;
       
     case MSG_NOTFOUND:
-      spool_nextmsg(spool, &latest_msg_id);
-      break;
+      if(spl->fetching_strategy == NCHAN_SPOOL_FETCH_IGNORE_MSG_NOTFOUND) {
+        spool->msg_status = prev_status;
+        break;
+      }
+      /*fallthrough*/
     case MSG_EXPIRED:
-      spool_nextmsg(spool, &oldest_msg_id);
+      //is this right?
+      //TODO: maybe message-expired notification
+      spool->msg_status = findmsg_status;
+      spool_respond_general(spool, NULL, NGX_HTTP_NO_CONTENT, NULL, 0);
+      nuspool = get_spool(spool->spooler, &oldest_msg_id);
+      if(spool != nuspool) {
+        spool_transfer_subscribers(spool, nuspool, 1);
+        if(spool->reserved == 0) {
+          destroy_spool(spool);
+        }
+        spool_fetch_msg(nuspool);
+      }
+      else if(spool->id.tagcount == 1 && nchan_compare_msgids(&spool->id, &oldest_msg_id) == 0) {
+        // oldest msgid not found or expired. that means there are no messages in this channel, 
+        // so move these subscribers over to the current_msg_spool
+        nuspool = get_spool(spool->spooler, &latest_msg_id);
+        assert(spool != nuspool);
+        spool_transfer_subscribers(spool, nuspool, 1);
+        if(spool->reserved == 0) {
+          destroy_spool(spool);
+        }
+      }
+      else if(spool == &spool->spooler->current_msg_spool) {
+        //sit there and wait, i guess
+        spool->msg_status = MSG_EXPECTED;
+      }
+      else {
+        ERR("Unexpected spool == nuspool during spool fetch_msg_callback. This is weird, please report this to the developers. findmsg_status: %i", findmsg_status);
+        assert(0);
+      }
       break;
     
     case MSG_PENDING:

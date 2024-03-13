@@ -39,6 +39,7 @@ int                 nchan_redis_stats_enabled = 0;
 
 
 static void nchan_publisher_body_handler(ngx_http_request_t *r);
+static void nchan_publisher_unavailable_body_handler(ngx_http_request_t *r);
 
 //#define DEBUG_LEVEL NGX_LOG_WARN
 //#define DEBUG_LEVEL NGX_LOG_DEBUG
@@ -745,6 +746,18 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
     return NGX_OK;
   }
   
+  if(cf->redis.enabled && !nchan_store_redis_ready(cf)) {
+    //using redis, and it's not ready yet
+    if(r->method == NGX_HTTP_POST || r->method == NGX_HTTP_PUT) {
+      //discard request body before responding
+      nchan_http_publisher_handler(r, nchan_publisher_unavailable_body_handler);
+    }
+    else {
+      nchan_respond_status(r, NGX_HTTP_SERVICE_UNAVAILABLE, NULL, NULL, 0);
+    }
+    return NGX_OK;
+  }
+  
   if(cf->pub.websocket || cf->pub.http) {
     char *err;
     if(!nchan_parse_message_buffer_config(r, cf, &err)) {
@@ -828,13 +841,6 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
 #if FAKESHARD
           memstore_sub_debug_start();
 #endif
-
-          if(cf->redis.enabled && ngx_process_slot == memstore_channel_owner(channel_id) && !nchan_store_redis_ready(cf)) {
-            //using redis, and it's not ready yet
-            nchan_respond_status(r, NGX_HTTP_SERVICE_UNAVAILABLE, NULL, NULL, 0);
-            return NGX_OK;
-          }
-
           if((msg_id = nchan_subscriber_get_msg_id(r)) == NULL) {
             goto bad_msgid;
           }
@@ -1241,6 +1247,11 @@ static ngx_int_t nchan_publisher_body_authorize_handler(ngx_http_request_t *r, v
     nchan_http_finalize_request(r->parent, rc);
   }
   return NGX_OK;
+}
+
+static void nchan_publisher_unavailable_body_handler(ngx_http_request_t *r) {
+  nchan_http_finalize_request(r, NGX_HTTP_SERVICE_UNAVAILABLE);
+  return;
 }
 
 static void nchan_publisher_body_handler(ngx_http_request_t *r) {

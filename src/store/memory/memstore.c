@@ -2079,13 +2079,12 @@ static void subscribe_data_free(subscribe_data_t *d) {
 #define SUB_CHANNEL_NOTSURE 2
 
 static ngx_int_t nchan_store_subscribe_channel_existence_check_callback(ngx_int_t channel_status, void* _, subscribe_data_t *d);
-static ngx_int_t nchan_store_subscribe_stage2(ngx_int_t continue_subscription, void* _, subscribe_data_t *d);
-static ngx_int_t nchan_store_subscribe_stage3(ngx_int_t channel_status, void* _, subscribe_data_t *d);
+static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void* _, subscribe_data_t *d);
 
 static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, subscriber_t *sub) {
   ngx_int_t                    owner = memstore_channel_owner(channel_id);
   subscribe_data_t            *d = subscribe_data_alloc(sub->cf->redis.enabled ? -1 : owner);
-
+  
   assert(d != NULL);
   
   d->channel_owner = owner;
@@ -2096,51 +2095,24 @@ static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, subscriber_t *sub)
   d->channel_exists = 0;
   d->group_channel_limit_pass = 0;
   d->msg_id = sub->last_msgid;
-
-  if(sub->cf->redis.enabled && memstore_slot() != owner) {
-    ngx_int_t rc;
+  
+  if(sub->cf->subscribe_only_existing_channel || sub->cf->max_channel_subscribers > 0) {
     sub->fn->reserve(sub);
     d->reserved = 1;
-    rc = memstore_ipc_send_redis_conn_ready(d->channel_owner, sub->cf, (callback_pt)nchan_store_subscribe_stage2, d);
-    if(rc == NGX_DECLINED) { // out of memory
-      nchan_store_subscribe_stage2(0, NULL, d);
-      return NGX_ERROR;
-    }
-  } else {
-    return nchan_store_subscribe_stage2(1, NULL, d);
-  }
-  return NGX_OK;
-}
-
-static ngx_int_t nchan_store_subscribe_stage2(ngx_int_t continue_subscription, void* _, subscribe_data_t *d) {
-  if(continue_subscription) {
-    if(d->sub->cf->subscribe_only_existing_channel || d->sub->cf->max_channel_subscribers > 0) {
-      if(!d->reserved) {
-        d->sub->fn->reserve(d->sub);
-        d->reserved = 1;
-      }
-      if(memstore_slot() != d->channel_owner) {
-        ngx_int_t rc;
-        rc = memstore_ipc_send_channel_existence_check(d->channel_owner, d->channel_id, d->sub->cf, (callback_pt )nchan_store_subscribe_channel_existence_check_callback, d);
-        if(rc == NGX_DECLINED) { // out of memory
-          nchan_store_subscribe_channel_existence_check_callback(SUB_CHANNEL_UNAUTHORIZED, NULL, d);
-          return NGX_ERROR;
-        }
-      }
-      else {
-        return nchan_store_subscribe_stage3(SUB_CHANNEL_NOTSURE, NULL, d);
+    if(memstore_slot() != owner) {
+      ngx_int_t rc;
+      rc = memstore_ipc_send_channel_existence_check(owner, channel_id, sub->cf, (callback_pt )nchan_store_subscribe_channel_existence_check_callback, d);
+      if(rc == NGX_DECLINED) { // out of memory
+        nchan_store_subscribe_channel_existence_check_callback(SUB_CHANNEL_UNAUTHORIZED, NULL, d);
+        return NGX_ERROR;
       }
     }
     else {
-      return nchan_store_subscribe_stage3(SUB_CHANNEL_AUTHORIZED, NULL, d);
+      return nchan_store_subscribe_continued(SUB_CHANNEL_NOTSURE, NULL, d);
     }
-  } else {
-    //using redis, and it's not ready yet
-    if(d->sub->fn->release(d->sub, 0) == NGX_OK) {
-      d->reserved = 0;
-      nchan_respond_status(d->sub->request, NGX_HTTP_SERVICE_UNAVAILABLE, NULL, NULL, 0);
-    }
-    subscribe_data_free(d);
+  }
+  else {
+    return nchan_store_subscribe_continued(SUB_CHANNEL_AUTHORIZED, NULL, d);
   }
   return NGX_OK;
 }
@@ -2148,7 +2120,7 @@ static ngx_int_t nchan_store_subscribe_stage2(ngx_int_t continue_subscription, v
 static ngx_int_t nchan_store_subscribe_channel_existence_check_callback(ngx_int_t channel_status, void* _, subscribe_data_t *d) {
   if(d->sub->fn->release(d->sub, 0) == NGX_OK) {
     d->reserved = 0;
-    return nchan_store_subscribe_stage3(channel_status, _, d);
+    return nchan_store_subscribe_continued(channel_status, _, d);
   }
   else {//don't go any further, the sub has been deleted
     subscribe_data_free(d);
@@ -2171,7 +2143,7 @@ static ngx_int_t redis_subscribe_channel_existence_callback(ngx_int_t status, vo
     /*
     else if (cf->max_channel_subscribers > 0) {
       // don't check this anymore -- a total subscribers count check is less
-      // useful as a per-instance check, which is handled in nchan_store_subscribe_stage3
+      // useful as a per-instance check, which is handled in nchan_store_subscribe_continued
       // shared total subscriber count check can be re-enabled with another config setting
       channel_status = channel->subscribers >= cf->max_channel_subscribers ? SUB_CHANNEL_UNAUTHORIZED : SUB_CHANNEL_AUTHORIZED;
     }
@@ -2180,7 +2152,7 @@ static ngx_int_t redis_subscribe_channel_existence_callback(ngx_int_t status, vo
       channel_status = SUB_CHANNEL_AUTHORIZED;
 
     }
-    nchan_store_subscribe_stage3(channel_status, NULL, data);
+    nchan_store_subscribe_continued(channel_status, NULL, data);
   }
   else {
     //error!!
@@ -2224,7 +2196,7 @@ static ngx_int_t group_subscribe_channel_limit_reached(ngx_int_t rc, nchan_chann
   if(d->sub->status != DEAD) {
     if(chaninfo) {
       //ok, channel already exists.
-      nchan_store_subscribe_stage3(SUB_CHANNEL_AUTHORIZED, NULL, d);
+      nchan_store_subscribe_continued(SUB_CHANNEL_AUTHORIZED, NULL, d);
     }
     else {
       //nope. no channel, no subscribing.
@@ -2247,14 +2219,14 @@ static ngx_int_t group_subscribe_channel_limit_check(ngx_int_t _, nchan_group_t 
     if(shm_group) {
       if(!shm_group->limit.channels || (shm_group->channels < shm_group->limit.channels)) {
         d->group_channel_limit_pass = 1;
-        rc = nchan_store_subscribe_stage3(SUB_CHANNEL_AUTHORIZED, NULL, d);
+        rc = nchan_store_subscribe_continued(SUB_CHANNEL_AUTHORIZED, NULL, d);
       }
       else if (shm_group->limit.channels && shm_group->channels == shm_group->limit.channels){
         //no new channels!
         rc = nchan_store_find_channel(d->channel_id, d->sub->cf, (callback_pt )group_subscribe_channel_limit_reached, d);
       }
       else {
-        rc = nchan_store_subscribe_stage3(SUB_CHANNEL_UNAUTHORIZED, NULL, d);
+        rc = nchan_store_subscribe_continued(SUB_CHANNEL_UNAUTHORIZED, NULL, d);
       }
       
     }
@@ -2274,7 +2246,7 @@ static ngx_int_t group_subscribe_channel_limit_check(ngx_int_t _, nchan_group_t 
   return rc;
 }
 
-static ngx_int_t nchan_store_subscribe_stage3(ngx_int_t channel_status, void* _, subscribe_data_t *d) {
+static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void* _, subscribe_data_t *d) {
   memstore_channel_head_t       *chanhead = NULL;
   int                            retry_null_chanhead = 1;
   //store_message_t             *chmsg;

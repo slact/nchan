@@ -26,5 +26,3 @@ ngx_int_t memstore_ipc_broadcast_benchmark_finish(void);
 ngx_int_t memstore_ipc_broadcast_benchmark_abort(void);
 
 ngx_int_t memstore_ipc_broadcast_redis_stats_request(void *nodeset, callback_pt cb, void *pd);
-
-ngx_int_t memstore_ipc_send_redis_conn_ready(ngx_int_t dst, nchan_loc_conf_t *cf, callback_pt callback, void* privdata);
