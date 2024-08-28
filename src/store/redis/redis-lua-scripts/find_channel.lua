@@ -83,7 +83,7 @@ if redis.call('EXISTS', channel_key) ~= 0 then
   return {
     tonumber(ch.ttl) or 0,
     tonumber(ch.last_seen_fake_subscriber) or 0,
-    tonumber(ch.fake_subscribers or ch.subscribers) or 0,
+    subscriber_count or 0,
     ch.current_message or "",
     msgs_count
   }
