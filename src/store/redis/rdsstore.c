@@ -1572,7 +1572,6 @@ static ngx_int_t redis_array_to_channel(redisReply *r, nchan_channel_t *ch) {
     && CHECK_REPLY_INT(r->element[4])) {
     
     //channel info
-    ch->expires = ngx_time() + r->element[0]->integer;
     ch->last_seen = r->element[1]->integer;
     ch->subscribers = r->element[2]->integer;
   

@@ -148,7 +148,6 @@ typedef struct {
   ngx_int_t                       messages;
   ngx_int_t                       subscribers;
   time_t                          last_seen;
-  time_t                          expires;
   nchan_msg_id_t                  last_published_msg_id;
 } nchan_channel_t;
 

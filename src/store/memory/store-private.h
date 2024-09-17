@@ -45,10 +45,10 @@ struct memstore_channel_head_s {
   ngx_str_t                       id; //channel id
   ngx_int_t                       owner;
   ngx_int_t                       slot;
-  nchan_channel_t                 channel;
   channel_spooler_t               spooler;
   chanhead_pubsub_status_t        status;
-  ngx_atomic_int_t                total_sub_count;
+  
+  ngx_atomic_int_t                sub_count;
   ngx_int_t                       internal_sub_count;
   time_t                          last_subscribed_local;
 
@@ -68,8 +68,10 @@ struct memstore_channel_head_s {
   ngx_uint_t                      max_messages;
   store_message_t                *msg_first;
   store_message_t                *msg_last;
+  ngx_uint_t                      msg_count;
   nchan_msg_id_t                  latest_msgid;
   nchan_msg_id_t                  oldest_msgid;
+  
   subscriber_t                   *foreign_owner_ipc_sub; //points to NULL or inaacceessible memory.
   time_t                          redis_idle_cache_ttl;
   unsigned                        stub:1;

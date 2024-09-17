@@ -202,9 +202,9 @@ static void receive_subscribe_reply(ngx_int_t sender, subscribe_data_t *d) {
     head->shared = d->shared_channel_data;
     
     if(old_shared == NULL) {
-      //ERR("%V local total_sub_count %i, internal_sub_count %i", &head->id,  head->sub_count, head->internal_sub_count);
-      assert(head->total_sub_count >= head->internal_sub_count);
-      ngx_atomic_fetch_add(&head->shared->sub_count, head->total_sub_count - head->internal_sub_count);
+      //ERR("%V local sub_count %i, internal_sub_count %i", &head->id,  head->sub_count, head->internal_sub_count);
+      assert(head->sub_count >= head->internal_sub_count);
+      ngx_atomic_fetch_add(&head->shared->sub_count, head->sub_count - head->internal_sub_count);
       ngx_atomic_fetch_add(&head->shared->internal_sub_count, head->internal_sub_count);
     }
     else {
@@ -263,7 +263,6 @@ typedef struct {
 } unsubscribed_data_t;
 
 ngx_int_t memstore_ipc_send_unsubscribed(ngx_int_t dst, ngx_str_t *chid, void* privdata) {
-  DBG("send unsubscribed to %i %V", dst, chid);
   unsubscribed_data_t        data = {str_shm_copy(chid), privdata};
   if(data.shm_chid == NULL) {
     nchan_log_ooshm_error("sending IPC unsubscribe alert for channel %V", chid);
@@ -272,25 +271,19 @@ ngx_int_t memstore_ipc_send_unsubscribed(ngx_int_t dst, ngx_str_t *chid, void* p
   return ipc_cmd(unsubscribed, dst, &data);
 }
 static void receive_unsubscribed(ngx_int_t sender, unsubscribed_data_t *d) {
-  DBG("received unsubscribed request for channel %V privdata %p", d->shm_chid, d->privdata);
   if(memstore_channel_owner(d->shm_chid) != memstore_slot()) {
     memstore_channel_head_t    *head;
     //find channel
     head = nchan_memstore_find_chanhead(d->shm_chid);
     if(head == NULL) {
       //already deleted maybe?
-      DBG("already unsubscribed...");
       return;
     }
     head->foreign_owner_ipc_sub = NULL;
+    
     //gc if no subscribers
-    if(head->total_sub_count == 0) {
-      DBG("add %p to GC", head);
-      chanhead_gc_add(head, "received UNSUBSCRIVED over ipc, sub_count == 0");
-    }
-    else {
-      //subscribe again?...
-      DBG("maybe subscribe again?...");
+    if(head->sub_count == 0) {
+      chanhead_gc_add(head, "received UNSUBSCRIBED over ipc, sub_count == 0");
     }
   }
   else {
@@ -947,7 +940,7 @@ static void receive_subscriber_keepalive(ngx_int_t sender, sub_keepalive_data_t 
       ERR("Got ipc-subscriber during keepalive for an already subscribed channel %V", &head->id);
       d->reply_action = KA_REPLY_UNHOOK_NORENEW;
     }
-    else if(head->total_sub_count == 0) {
+    else if(head->sub_count == 0) {
       if(ngx_time() - head->last_subscribed_local > MEMSTORE_IPC_SUBSCRIBER_TIMEOUT) {
         d->reply_action = KA_REPLY_NORENEW;
         DBG("No subscribers lately. Time... to die.");
