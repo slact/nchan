@@ -195,7 +195,7 @@ redis_lua_scripts_t redis_lua_scripts = {
    "  return nil\n"
    "end\n"},
 
-  {"find_channel", "0c5d0e0663393ed714801cbe68940d4c8f81e076",
+  {"find_channel", "a2c935167edd17b4a9c850f31dd8d2beb706b1c5",
    "--input: keys: [],  values: [ namespace, channel_id, use_accurate_subscriber_count ]\n"
    "--output: channel_hash {ttl, time_last_seen, subscribers, last_channel_id, messages} or nil\n"
    "-- finds and return the info hash of a channel, or nil of channel not found\n"
@@ -281,7 +281,7 @@ redis_lua_scripts_t redis_lua_scripts = {
    "  return {\n"
    "    tonumber(ch.ttl) or 0,\n"
    "    tonumber(ch.last_seen_fake_subscriber) or 0,\n"
-   "    tonumber(ch.fake_subscribers or ch.subscribers) or 0,\n"
+   "    subscriber_count or 0,\n"
    "    ch.current_message or \"\",\n"
    "    msgs_count\n"
    "  }\n"
