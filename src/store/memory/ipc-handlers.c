@@ -282,10 +282,10 @@ static void receive_unsubscribed(ngx_int_t sender, unsubscribed_data_t *d) {
       DBG("already unsubscribed...");
       return;
     }
+    head->foreign_owner_ipc_sub = NULL;
     //gc if no subscribers
     if(head->total_sub_count == 0) {
       DBG("add %p to GC", head);
-      head->foreign_owner_ipc_sub = NULL;
       chanhead_gc_add(head, "received UNSUBSCRIVED over ipc, sub_count == 0");
     }
     else {
