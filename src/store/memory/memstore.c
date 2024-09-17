@@ -1378,7 +1378,7 @@ ngx_int_t nchan_memstore_publish_generic(memstore_channel_head_t *head, nchan_ms
     //}
   }
   else {
-    ERR("tried publishing status %i to chanhead %p (subs: %i)", status_code, head, head->sub_count);
+    DBG("tried publishing status %i to chanhead %p (subs: %i)", status_code, head, head->sub_count);
     head->spooler.fn->broadcast_status(&head->spooler, status_code, status_line);
   }
     
