@@ -1296,6 +1296,8 @@ static void nodeset_recover_cluster_handler(redisAsyncContext *ac, void *rep, vo
     //we will set actual master-slave associations later.
   }
   
+  DBG("discovered %i nodes", discovered);
+  
   //does this node have SPUBLISH support?
   node->have_spublish = reply->element[2]->type == REDIS_REPLY_ARRAY;
   
@@ -3288,6 +3290,8 @@ ngx_int_t nodeset_examine(redis_nodeset_t *nodeset) {
   }
   
   nodeset->cluster.enabled = cluster > 0;
+  
+  DBG("nodeset examination results: cluster: %d, masters: %i, slaves: %i, total: %i, connecting: %i, ready: %i, disconnected: %i, discovered: %i, failed_masters: %i, failed_slaves: %i, failed_unknowns: %i, ready_cluster: %i, ready_non_cluster: %i, connecting_masters: %i", cluster, masters, slaves, total, connecting, ready, disconnected, discovered, failed_masters, failed_slaves, failed_unknowns, ready_cluster, ready_non_cluster, connecting_masters);
   
   if(current_status == REDIS_NODESET_CONNECTING && connecting > 0) {
     //still connecting, with a few nodws yet to try to connect

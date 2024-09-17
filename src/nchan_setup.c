@@ -1484,7 +1484,7 @@ static char *ngx_conf_upstream_redis_server(ngx_conf_t *cf, ngx_command_t *cmd, 
     size_t combined_length = value[1].len + 1 + value[2].len + 1;
     server_name.data = ngx_pcalloc(cf->pool, combined_length);
     assert(server_name.data);
-    server_name.len = ngx_snprintf(server_name.data, combined_length, "%V %V%Z", &value[1], &value[2]) - server_name.data;
+    server_name.len = ngx_snprintf(server_name.data, combined_length, "%V %V%Z", &value[1], forced_role) - server_name.data;
   }
   
   ngx_memzero(usrv, sizeof(*usrv));

@@ -467,13 +467,13 @@ static void ipc_read_handler(ngx_event_t *ev) {
 
 
 ngx_int_t ipc_broadcast_alert(ipc_t *ipc, ngx_uint_t code, void *data, size_t data_size) {
-  ngx_int_t   i, slot, rc, ret = NGX_OK;
+  ngx_int_t   i, slot, ret = NGX_OK;
   ngx_int_t   my_slot = memstore_slot();
   DBG("broadcast alert");
   for(i=0; i < ipc->workers; i++) {
     slot = ipc->worker_slots[i];
     if(my_slot != slot) {
-      if((rc = ipc_alert(ipc, slot, code, data, data_size)) != NGX_OK)  {
+      if(ipc_alert(ipc, slot, code, data, data_size) != NGX_OK)  {
         ERR("Error sending alert to slot %i", slot);
         ret = NGX_ERROR;
       }

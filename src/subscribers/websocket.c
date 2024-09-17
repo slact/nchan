@@ -1599,7 +1599,6 @@ static ngx_flag_t is_utf8(ngx_buf_t *buf) {
   size_t n;
   
   u_char  c, *last;
-  size_t  len;
   int     mmapped = 0;
   
   if(ngx_buf_in_memory(buf)) {
@@ -1618,7 +1617,7 @@ static ngx_flag_t is_utf8(ngx_buf_t *buf) {
   
   last = p + n;
   
-  for (len = 0; p < last; len++) {
+  while (p < last) {
     c = *p;
     
     if (c < 0x80) {

@@ -783,7 +783,7 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
 #if FAKESHARD
       memstore_sub_debug_start();
 #endif
-      if((msg_id = nchan_subscriber_get_msg_id(r)) == NULL) {
+      if(nchan_subscriber_get_msg_id(r) == NULL) {
         goto bad_msgid;
       }
       if((sub = websocket_subscriber_create(r, msg_id)) == NULL) {
