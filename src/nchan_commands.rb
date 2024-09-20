@@ -407,7 +407,7 @@ CfCmd.new do
       tags: ['redis'],
       value: "<redis-url>",
       default: "127.0.0.1:6379",
-      info: "Use of this command is discouraged in favor of upstreams blocks with (`nchan_redis_server`)[#nchan_redis_server]. The path to a redis server, of the form 'redis://:password@hostname:6379/0'. Shorthand of the form 'host:port' or just 'host' is also accepted.",
+      info: "Use of this command is discouraged in favor of upstreams blocks with [`nchan_redis_server`](#nchan_redis_server). The path to a redis server, of the form 'redis://:password@hostname:6379/0'. Shorthand of the form 'host:port' or just 'host' is also accepted.",
       uri: "#connecting-to-a-redis-server"
   
   nchan_redis_pass [:main, :srv, :loc],
