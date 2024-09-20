@@ -1,3 +1,18 @@
+1.3.7 (Sep. 19 2024)
+ fix: repeated DELETE requests can leave unresponsive subscribers connected to a channel
+ fix: channel info subscriber count incorrect when using Redis following unclean worker exit
+      (Thanks, Steven Green)
+ feature: manually set Redis server roles to master or slave
+ fix: Redis server blacklist was only applied in cluster mode
+      (Thanks, piotr-lwks)
+ fix: Nchan may fail to connect to non-cluster Redis if more than 1 server is specified
+      (Thanks, Mike Baroukh)
+ fix: Some invalid message IDs may result in a worker crash
+ fix: Nchan may fail to reconnect ro a Redis cluster when using many workers due to a race condition
+      (Thanks, Fabio Urquiza)
+ fix: subscriber info may be incorrect for Redis version >=7
+ fix: Redis cluster may fail to reconnect to a cluster without consensus
+      (Thanks, Fabio Urquiza)
 1.3.6 (Jan. 6 2023)
  fix: reloading Nginx with nchan_stub_status enabled may result in a crash (introduced in v1.3.1) 
  fix: nchan_redis_upstream_stats_enabled incorrectly documented as having "yes/no" values instead of "on/off"
