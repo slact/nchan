@@ -1443,6 +1443,7 @@ static char *ngx_conf_upstream_redis_server(ngx_conf_t *cf, ngx_command_t *cmd, 
   uscf = ngx_http_conf_get_module_srv_conf(cf, ngx_http_upstream_module);  
   nchan_srv_conf_t                    *scf = NULL;
   ngx_str_t                           server_name;
+  ngx_str_t                           slave = ngx_string("slave");
   scf = ngx_http_conf_upstream_srv_conf(uscf, ngx_nchan_module);
   if(scf->upstream_nchan_loc_conf) {
     assert(scf->upstream_nchan_loc_conf == lcf);
@@ -1474,7 +1475,6 @@ static char *ngx_conf_upstream_redis_server(ngx_conf_t *cf, ngx_command_t *cmd, 
       //good.
     }
     else if(nchan_strmatch(forced_role, 2, "slave", "replica")) {
-      ngx_str_t slave = ngx_string("slave");
       forced_role = &slave;
     }
     else {
