@@ -244,7 +244,7 @@ static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   return nchan_output_msg_filter(fsub->sub.request, msg, first_link);
 }
 
-static void empty_handler(void) {}
+static void empty_cleanup_handler(void *) { }
 
 static ngx_int_t es_respond_status(subscriber_t *sub, ngx_int_t status_code, const ngx_str_t *status_line,  ngx_chain_t *status_body){
   
@@ -275,7 +275,7 @@ static ngx_int_t es_respond_status(subscriber_t *sub, ngx_int_t status_code, con
   nchan_output_filter(fsub->sub.request, &bc.chain);
   
   if((status_code >=400 && status_code <599) || status_code == NGX_HTTP_NOT_MODIFIED) {
-    fsub->data.cln->handler = (ngx_http_cleanup_pt )empty_handler;
+    fsub->data.cln->handler = empty_cleanup_handler;
     fsub->sub.request->keepalive=0;
     sub->request->headers_out.status = status_code;
     fsub->data.finalize_request=1;

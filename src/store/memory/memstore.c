@@ -1394,7 +1394,7 @@ ngx_int_t nchan_memstore_publish_generic(memstore_channel_head_t *head, nchan_ms
 
 static ngx_int_t chanhead_messages_delete(memstore_channel_head_t *ch);
 
-static ngx_int_t empty_callback(){
+static ngx_int_t empty_callback(ngx_int_t, void *, void *){
   return NGX_OK;
 }
 
