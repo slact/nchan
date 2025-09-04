@@ -26,7 +26,7 @@ struct sub_data_s {
   ngx_event_t                   timeout_ev;
 }; //sub_data_t
 
-static ngx_int_t empty_callback(){
+static ngx_int_t empty_callback(ngx_int_t status, void *ptr1, void *ptr2){
   return NGX_OK;
 }
 
