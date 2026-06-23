@@ -28,3 +28,5 @@ ngx_int_t nchan_msg_buf_open_fd_if_needed(ngx_buf_t *buf, ngx_file_t *file, ngx_
 ngx_str_t *msgtag_to_str(nchan_msg_id_t *id);
 ngx_str_t *msgid_to_str(nchan_msg_id_t *id);
 size_t msgtag_to_strptr(nchan_msg_id_t *id, char *ch);
+
+extern ngx_module_t ngx_http_charset_filter_module;
