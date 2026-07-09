@@ -31,6 +31,7 @@
 //#include <store/memory/store-private.h> //for debugging
 #endif
 #include <util/nchan_output.h>
+#include <util/nchan_stub_status_formats.h>
 #include <nchan_websocket_publisher.h>
 
 ngx_int_t           nchan_worker_processes;
@@ -236,66 +237,23 @@ static ngx_int_t nchan_http_publisher_handler(ngx_http_request_t * r, void (*bod
 }
 
 ngx_int_t nchan_stub_status_handler(ngx_http_request_t *r) {
-  ngx_buf_t           *b;
-  ngx_chain_t          out;
-  
   nchan_stats_global_t global;
   nchan_stats_worker_t worker;
-  
   nchan_main_conf_t   *mcf = ngx_http_get_module_main_conf(r, ngx_nchan_module);
-  
-  float                shmem_used, shmem_max;
-  
-  char     *buf_fmt = "total published messages: %ui\n"
-                      "stored messages: %ui\n"
-                      "shared memory used: %fK\n"
-                      "shared memory limit: %fK\n"
-                      "channels: %ui\n"
-                      "subscribers: %ui\n"
-                      "redis pending commands: %ui\n"
-                      "redis connected servers: %ui\n"
-                      "redis unhealthy upstreams: %ui\n"
-                      "total redis commands sent: %ui\n"
-                      "total interprocess alerts received: %ui\n"
-                      "interprocess alerts in transit: %ui\n"
-                      "interprocess queued alerts: %ui\n"
-                      "total interprocess send delay: %ui\n"
-                      "total interprocess receive delay: %ui\n"
-                      "nchan version: %s\n";
-  
-  if ((b = ngx_pcalloc(r->pool, sizeof(*b) + 800)) == NULL) {
-    nchan_log_request_error(r, "Failed to allocate response buffer for nchan_stub_status.");
-    return NGX_HTTP_INTERNAL_SERVER_ERROR;
-  }
-  
-  shmem_used = (float )((float )nchan_get_used_shmem() / 1024.0);
-  shmem_max = (float )((float )mcf->shm_size / 1024.0);
-  
-  if(nchan_stats_get_all(&worker, &global) != NGX_OK) {
-    nchan_log_request_error(r, "Failed to get stub status stats.");
-    return NGX_HTTP_INTERNAL_SERVER_ERROR;
-  }
-  
-  b->start = (u_char *)&b[1];
-  b->pos = b->start;
-  
-  b->end = ngx_snprintf(b->start, 800, buf_fmt, global.total_published_messages, worker.messages, shmem_used, shmem_max, worker.channels, worker.subscribers, worker.redis_pending_commands, worker.redis_connected_servers, worker.redis_unhealthy_upstreams, global.total_redis_commands_sent, global.total_ipc_alerts_received, global.total_ipc_alerts_sent - global.total_ipc_alerts_received, worker.ipc_queue_size, global.total_ipc_send_delay, global.total_ipc_receive_delay, NCHAN_VERSION);
-  b->last = b->end;
+  nchan_loc_conf_t    *lcf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
 
-  b->memory = 1;
-  b->last_buf = 1;
-  
-  r->headers_out.status = NGX_HTTP_OK;
-  r->headers_out.content_type.len = sizeof("text/plain") - 1;
-  r->headers_out.content_type.data = (u_char *) "text/plain";
-  
-  r->headers_out.content_length_n = b->end - b->start;
-  ngx_http_send_header(r);
-  
-  out.buf = b;
-  out.next = NULL;
-  
-  return ngx_http_output_filter(r, &out);
+  // Dispatch to format-specific handler based on stub_status_format
+  switch(lcf->stub_status_format) {
+    case 1: // json
+      return nchan_stub_status_json(r, &worker, &global, mcf);
+    case 2: // html
+      return nchan_stub_status_html(r, &worker, &global, mcf);
+    case 3: // prometheus
+      return nchan_stub_status_prometheus(r, &worker, &global, mcf);
+    case 0: // plain (default)
+    default:
+      return nchan_stub_status_plain(r, &worker, &global, mcf);
+  }
 }
 
 static ngx_int_t redis_stats_callback(ngx_int_t rc, void *d, void *pd) {

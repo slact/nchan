@@ -317,6 +317,9 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   lcf->benchmark.subscribers_per_channel = NGX_CONF_UNSET;
   lcf->benchmark.subscriber_distribution = NCHAN_BENCHMARK_SUBSCRIBER_DISTRIBUTION_UNSET;
   lcf->benchmark.publisher_distribution = NCHAN_BENCHMARK_PUBLISHER_DISTRIBUTION_UNSET;
+
+  lcf->stub_status_format = NGX_CONF_UNSET;
+
   return lcf;
 }
 
@@ -614,7 +617,9 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_value(conf->benchmark.subscribers_per_channel, prev->benchmark.subscribers_per_channel, 100);
   MERGE_UNSET_CONF(conf->benchmark.subscriber_distribution, prev->benchmark.subscriber_distribution, NCHAN_BENCHMARK_SUBSCRIBER_DISTRIBUTION_UNSET, NCHAN_BENCHMARK_SUBSCRIBER_DISTRIBUTION_RANDOM);
   MERGE_UNSET_CONF(conf->benchmark.publisher_distribution, prev->benchmark.publisher_distribution, NCHAN_BENCHMARK_PUBLISHER_DISTRIBUTION_UNSET, NCHAN_BENCHMARK_PUBLISHER_DISTRIBUTION_RANDOM);
-  
+
+  ngx_conf_merge_value(conf->stub_status_format, prev->stub_status_format, 0);
+
   return NGX_CONF_OK;
 }
 
@@ -1427,6 +1432,26 @@ static char *nchan_stub_status_directive(ngx_conf_t *cf, ngx_command_t *cmd, voi
   nchan_loc_conf_t    *lcf = conf;
   nchan_stub_status_enabled = 1;
   lcf->request_handler = &nchan_stub_status_handler;
+
+  // Parse format argument if provided
+  if (cf->args->nelts > 1) {
+    ngx_str_t *val = &((ngx_str_t *) cf->args->elts)[1];
+    if (ngx_strncmp(val->data, "plain", val->len) == 0) {
+      lcf->stub_status_format = 0;
+    } else if (ngx_strncmp(val->data, "json", val->len) == 0) {
+      lcf->stub_status_format = 1;
+    } else if (ngx_strncmp(val->data, "html", val->len) == 0) {
+      lcf->stub_status_format = 2;
+    } else if (ngx_strncmp(val->data, "prometheus", val->len) == 0) {
+      lcf->stub_status_format = 3;
+    } else {
+      ngx_conf_log_error(NGX_LOG_ERR, cf, 0,
+        "invalid nchan_stub_status format: %V (valid: plain, json, html, prometheus)", val);
+      return NGX_CONF_ERROR;
+    }
+  } else {
+    lcf->stub_status_format = 0; // default: plain
+  }
   return NGX_CONF_OK;
 }
 

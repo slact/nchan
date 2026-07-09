@@ -1074,11 +1074,13 @@ CfCmd.new do
   nchan_stub_status [:loc],
       :nchan_stub_status_directive,
       :loc_conf,
-      args: 0,
-      
+      args: 0..1,
+
       group: "meta",
       tags: ['introspection'],
-      info: "Similar to Nginx's stub_status directive, requests to an `nchan_stub_status` location get a response with some vital Nchan statistics. This data does not account for information from other Nchan instances, and monitors only local connections, published messages, etc.",
+      value: ["plain", "json", "html", "prometheus"],
+      default: "plain",
+      info: "Similar to Nginx's stub_status directive, requests to an `nchan_stub_status` location get a response with some vital Nchan statistics. This data does not account for information from other Nchan instances, and monitors only local connections, published messages, etc. The optional format argument can be 'plain' (default), 'json', 'html', or 'prometheus'.",
       uri: "#nchan_stub_status"
   
   nchan_channel_event_string [:srv, :loc, :if], 

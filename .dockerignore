@@ -1,0 +1,6 @@
+.git
+dev/
+*.rb
+cloc-exclude.txt
+nchan_logo.png
+Dockerfile.test
