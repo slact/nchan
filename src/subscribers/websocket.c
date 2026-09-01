@@ -1481,12 +1481,7 @@ retry:
             break;
           case WEBSOCKET_OPCODE_TEXT:
           case WEBSOCKET_OPCODE_BINARY:
-            
-            if(!fsub->sub.cf->pub.websocket) {
-              websocket_send_close_frame_cstr(fsub, CLOSE_POLICY_VIOLATION, "Publishing not allowed.");
-              return websocket_reading_finalize(r);
-            }
-            
+
             //TODO: check max websocket message length
             if(frame->payload == NULL) {
               if(ws_get_msgpool(fsub) == NULL) {
@@ -1546,6 +1541,11 @@ retry:
             }
             
             if(websocket_heartbeat(fsub, msgbuf) != NGX_OK) {
+              if(!fsub->sub.cf->pub.websocket) {
+                ws_destroy_msgpool(fsub);
+                websocket_send_close_frame_cstr(fsub, CLOSE_POLICY_VIOLATION, "Publishing not allowed.");
+                return websocket_reading_finalize(r);
+              }
               websocket_publish(fsub, msgbuf, frame->opcode == WEBSOCKET_OPCODE_BINARY);
             }
             else {
