@@ -921,17 +921,10 @@ static void receive_subscriber_keepalive(ngx_int_t sender, sub_keepalive_data_t 
       d->reply_action = KA_REPLY_UNHOOK_NORENEW;
     }
     else if(head->status != READY && head->status != STUBBED) {
-      if(head->status == WAITING && head->foreign_owner_ipc_sub == NULL) {
-        //wrong-status head. don't renew, get rid of this chanhead
-        nchan_memstore_publish_generic(head, NULL, NGX_HTTP_SERVICE_UNAVAILABLE, NULL);
-        nchan_memstore_force_delete_channel(d->shm_chid, NULL, NULL);
-        d->reply_action = KA_REPLY_UNHOOK_NORENEW;
+      if(head->status == WAITING && head->sub_count > 0) {
+        d->reply_action = KA_REPLY_RENEW;
       }
       else {
-        //something's gone extra weird. 
-        //kick out these subs, delete chanhead... just in case
-        nchan_memstore_publish_generic(head, NULL, NGX_HTTP_SERVICE_UNAVAILABLE, NULL);
-        nchan_memstore_force_delete_channel(d->shm_chid, NULL, NULL);
         d->reply_action = KA_REPLY_UNHOOK_NORENEW;
       }
     }
