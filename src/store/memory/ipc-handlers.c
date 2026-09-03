@@ -279,6 +279,11 @@ static void receive_unsubscribed(ngx_int_t sender, unsubscribed_data_t *d) {
       //already deleted maybe?
       return;
     }
+    if(head->foreign_owner_ipc_sub != NULL && head->foreign_owner_ipc_sub != d->privdata) {
+      // stale unsubscribed for an already-replaced subscriber — ignore
+      str_shm_free(d->shm_chid);
+      return;
+    }
     head->foreign_owner_ipc_sub = NULL;
 
     if(head->sub_count == 0) {
