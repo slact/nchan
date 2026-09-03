@@ -279,11 +279,18 @@ static void receive_unsubscribed(ngx_int_t sender, unsubscribed_data_t *d) {
       //already deleted maybe?
       return;
     }
+    if(head->foreign_owner_ipc_sub != NULL && head->foreign_owner_ipc_sub != d->privdata) {
+      // stale unsubscribed for an already-replaced subscriber — ignore
+      str_shm_free(d->shm_chid);
+      return;
+    }
     head->foreign_owner_ipc_sub = NULL;
-    
-    //gc if no subscribers
+
     if(head->sub_count == 0) {
       chanhead_gc_add(head, "received UNSUBSCRIBED over ipc, sub_count == 0");
+    }
+    else {
+      memstore_ensure_chanhead_is_ready(head, 1);
     }
   }
   else {
@@ -919,17 +926,10 @@ static void receive_subscriber_keepalive(ngx_int_t sender, sub_keepalive_data_t 
       d->reply_action = KA_REPLY_UNHOOK_NORENEW;
     }
     else if(head->status != READY && head->status != STUBBED) {
-      if(head->status == WAITING && head->foreign_owner_ipc_sub == NULL) {
-        //wrong-status head. don't renew, get rid of this chanhead
-        nchan_memstore_publish_generic(head, NULL, NGX_HTTP_SERVICE_UNAVAILABLE, NULL);
-        nchan_memstore_force_delete_channel(d->shm_chid, NULL, NULL);
-        d->reply_action = KA_REPLY_UNHOOK_NORENEW;
+      if(head->status == WAITING && head->sub_count > 0) {
+        d->reply_action = KA_REPLY_RENEW;
       }
       else {
-        //something's gone extra weird. 
-        //kick out these subs, delete chanhead... just in case
-        nchan_memstore_publish_generic(head, NULL, NGX_HTTP_SERVICE_UNAVAILABLE, NULL);
-        nchan_memstore_force_delete_channel(d->shm_chid, NULL, NULL);
         d->reply_action = KA_REPLY_UNHOOK_NORENEW;
       }
     }
@@ -969,7 +969,7 @@ static void receive_subscriber_keepalive_reply(ngx_int_t sender, sub_keepalive_d
       sub->fn->release(sub, 0);
       break;
     case KA_REPLY_UNHOOK_NORENEW:
-      memstore_ipc_subscriber_unhook(sub);
+      sub->fn->dequeue(sub);
       sub->fn->release(sub, 0);
       break;
     default:
