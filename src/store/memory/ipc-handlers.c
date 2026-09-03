@@ -280,10 +280,12 @@ static void receive_unsubscribed(ngx_int_t sender, unsubscribed_data_t *d) {
       return;
     }
     head->foreign_owner_ipc_sub = NULL;
-    
-    //gc if no subscribers
+
     if(head->sub_count == 0) {
       chanhead_gc_add(head, "received UNSUBSCRIBED over ipc, sub_count == 0");
+    }
+    else {
+      memstore_ensure_chanhead_is_ready(head, 1);
     }
   }
   else {
@@ -969,7 +971,7 @@ static void receive_subscriber_keepalive_reply(ngx_int_t sender, sub_keepalive_d
       sub->fn->release(sub, 0);
       break;
     case KA_REPLY_UNHOOK_NORENEW:
-      memstore_ipc_subscriber_unhook(sub);
+      sub->fn->dequeue(sub);
       sub->fn->release(sub, 0);
       break;
     default:
