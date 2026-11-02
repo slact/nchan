@@ -52,6 +52,9 @@
 
 #define NCHAN_MAX_CHANNEL_ID_LENGTH 1024 //bytes
 
+//msgpack str8 length field, and the redis message envelope's content-type byte
+#define NCHAN_MAX_CONTENT_TYPE_LENGTH 255
+
 #define NCHAN_META_CHANNEL_MAX_MESSAGES 100
 #define NCHAN_META_CHANNEL_MESSAGE_TTL 10
 #define NCHAN_META_CHANNEL_TIMEOUT 30
