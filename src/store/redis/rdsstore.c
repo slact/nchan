@@ -146,9 +146,13 @@ static u_char *fwd_buf(ngx_buf_t *buf, size_t sz) {
   return ret;
 }
 
-static void fwd_buf_to_str(ngx_buf_t *buf, size_t sz, ngx_str_t *str) {
+static bool fwd_buf_to_str(ngx_buf_t *buf, size_t sz, ngx_str_t *str) {
+  if(sz > (size_t)(buf->last - buf->pos)) {
+    return false;
+  }
   str->data = fwd_buf(buf, sz);
-  str->len = sz;;
+  str->len = sz;
+  return true;
 }
 
 static bool ngx_buf_reader(cmp_ctx_t *ctx, void *data, size_t limit) {
@@ -547,8 +551,8 @@ static bool cmp_to_str(cmp_ctx_t *cmp, ngx_str_t *str) {
   ngx_buf_t      *mpbuf =(ngx_buf_t *)cmp->buf;
   uint32_t        sz;
   
-  if(cmp_read_str_size(cmp, &sz)) {
-    fwd_buf_to_str(mpbuf, sz, str);
+  if(cmp_read_str_size(cmp, &sz) && fwd_buf_to_str(mpbuf, sz, str)) {
+
     return true;
   }
   else {
@@ -609,18 +613,23 @@ static bool cmp_to_msg(cmp_ctx_t *cmp, nchan_msg_t *msg, nchan_compressed_msg_t 
   msg->buf.last_buf = 1;
   msg->buf.last_in_chain = 1;
 
+
   //content-type
   if(!cmp_read_str_size(cmp, &sz)) {
     return cmp_err(cmp);
   }
-  fwd_buf_to_str(mpb, sz, content_type);
+  if(!fwd_buf_to_str(mpb, sz, content_type)) {
+    return cmp_err(cmp);
+  }
   msg->content_type = sz > 0 ? content_type : NULL;
   
   //eventsource_event
   if(!cmp_read_str_size(cmp, &sz)) {
     return cmp_err(cmp);
   }
-  fwd_buf_to_str(mpb, sz, eventsource_event);
+  if(!fwd_buf_to_str(mpb, sz, eventsource_event)) {
+    return cmp_err(cmp);
+  }
   msg->eventsource_event = sz > 0 ? eventsource_event : NULL;
   
   //compression
@@ -840,8 +849,10 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
         if(array_sz != 0) {
           uint32_t      sz;
           ngx_str_t     msg_type;
-          cmp_read_str_size(&cmp ,&sz);
-          fwd_buf_to_str(&mpbuf, sz, &msg_type);
+          if(!cmp_read_str_size(&cmp ,&sz) || !fwd_buf_to_str(&mpbuf, sz, &msg_type)) {
+            cmp_err(&cmp);
+            return;
+          }
           
           if(ngx_str_chop_if_startswith(&msg_type, "max_msgs+")) {
             if(cmp_read_integer(&cmp, &msgbuf_size))
@@ -851,8 +862,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
           }
           
           if(ngx_str_chop_if_startswith(&msg_type, "ch+")) {
-            if(cmp_read_str_size(&cmp, &sz)) {
-              fwd_buf_to_str(&mpbuf, sz, &extracted_channel_id);
+            if(cmp_read_str_size(&cmp, &sz) && fwd_buf_to_str(&mpbuf, sz, &extracted_channel_id)) {
               chid = &extracted_channel_id;
             }
             else {
@@ -2285,8 +2295,8 @@ static ngx_int_t redis_publish_message_send(redis_nodeset_t *nodeset, void *pd) 
     ttl = htonl(d->message_timeout);
     time = htonl(msg->id.time);
     msglen = htonl(d->msglen);
-    content_type_len = msg->content_type ? (msg->content_type->len > 255 ? 255 : msg->content_type->len) : 0;
-    eventsource_event_len = msg->eventsource_event ? (msg->eventsource_event->len > 255 ? 255 : msg->eventsource_event->len) : 0;
+    content_type_len = msg->content_type ? (msg->content_type->len > NCHAN_MAX_CONTENT_TYPE_LENGTH ? NCHAN_MAX_CONTENT_TYPE_LENGTH : msg->content_type->len) : 0;
+    eventsource_event_len = msg->eventsource_event ? (msg->eventsource_event->len > NCHAN_MAX_CONTENT_TYPE_LENGTH ? NCHAN_MAX_CONTENT_TYPE_LENGTH : msg->eventsource_event->len) : 0;
     compression = d->compression;
     
     if(!fastpublish) {
@@ -2314,9 +2324,9 @@ static ngx_int_t redis_publish_message_send(redis_nodeset_t *nodeset, void *pd) 
       (char *)&msglen, (size_t )4,
       STR(&msgstr),
       (char *)&content_type_len, (size_t )1,
-      STR((msg->content_type ? msg->content_type : &empty)),
+      (char *)(msg->content_type ? msg->content_type->data : empty.data), (size_t )content_type_len,
       (char *)&eventsource_event_len, (size_t )1,
-      STR((msg->eventsource_event ? msg->eventsource_event : &empty)),
+      (char *)(msg->eventsource_event ? msg->eventsource_event->data : empty.data), (size_t )eventsource_event_len,
       (char *)&compression, (size_t )1
     );
     if(!fastpublish) {
