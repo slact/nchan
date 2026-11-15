@@ -1,3 +1,6 @@
+1.3.9 (Nov. 15 2026)
+ fix: (security): multipart/mixed subscriber response headers could overflow the heap with a long Content-Type
+      with messages longer than 255 bytes
  fix: (security): Redis message-key handling could overflow the heap with long channel IDs
       (Thanks, Ridful <koshkalover@proton.me>)
  fix: worker crash when fake requests from nchan pubsub hooks interact with nginx ip check-based modules
