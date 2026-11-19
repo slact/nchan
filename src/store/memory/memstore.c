@@ -1382,10 +1382,7 @@ ngx_int_t nchan_memstore_publish_generic(memstore_channel_head_t *head, nchan_ms
     head->spooler.fn->broadcast_status(&head->spooler, status_code, status_line);
   }
     
-  //TODO: be smarter about garbage-collecting chanheads
-  if(head->owner == memstore_slot()) {
-    //the owner is responsible for the chanhead and its interprocess siblings
-    //when removed, said siblings will be notified via IPC
+  if(head->owner == memstore_slot() && head->sub_count == 0) {
     chanhead_gc_add(head, "add owner chanhead after publish");
   }
   

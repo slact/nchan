@@ -43,7 +43,7 @@ static ngx_int_t sub_dequeue(ngx_int_t status, void *ptr, sub_data_t* d) {
     ngx_del_timer(&d->timeout_ev);
   }
   if(!d->unhooked) {
-    ret = memstore_ipc_send_unsubscribed(d->originator, d->chid, NULL);
+    ret = memstore_ipc_send_unsubscribed(d->originator, d->chid, d->sub);
   }
   else {
     ret = NGX_OK;
