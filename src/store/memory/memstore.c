@@ -718,7 +718,7 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
   return NGX_OK;
 }
 
-#define CHANHEAD_SHARED_OKAY(head) head->status == READY || head->status == STUBBED || (!head->stub && head->cf->redis.enabled == 1 && head->status == WAITING && head->owner == head->slot)
+#define CHANHEAD_SHARED_OKAY(head) (head->status == READY || head->status == STUBBED || (!head->stub && head->status == WAITING && head->owner == head->slot))
 
 void memstore_fakesub_add(memstore_channel_head_t *head, ngx_int_t n) {
   assert(head->cf->redis.storage_mode >= REDIS_MODE_DISTRIBUTED);
@@ -1256,9 +1256,7 @@ ngx_int_t chanhead_gc_add(memstore_channel_head_t *ch, const char *reason) {
     ch->shared = NULL;
   }
   if(ch->status == WAITING && !(ch->cf && ch->cf->redis.enabled) && !(ngx_exiting || ngx_quit)) {
-    ERR("tried adding WAITING chanhead %p %V to chanhead_gc. why?", ch, &ch->id);
-    //don't gc it just yet.
-    return NGX_OK;
+    DBG("adding WAITING non-Redis chanhead %p %V to chanhead_gc, transitioning to INACTIVE", ch, &ch->id);
   }
   
   assert(ch->slot == slot);
@@ -1363,7 +1361,7 @@ ngx_int_t nchan_memstore_publish_generic(memstore_channel_head_t *head, nchan_ms
   
   if(head->shared) {
     if(!(head->cf && head->cf->redis.enabled) && !head->multi) {
-      assert(head->status == READY || head->status == STUBBED);
+      assert(CHANHEAD_SHARED_OKAY(head));
     }
     shared_sub_count = head->shared->sub_count;
   }
