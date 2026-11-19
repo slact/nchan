@@ -1,0 +1,18 @@
+name: build
+on: [push, pull_request]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: download nginx source code
+        run: |
+          wget https://github.com/nginx/nginx/archive/refs/tags/release-1.29.0.tar.gz -O nginx.tar.gz
+          echo "fb935a227af9fdc8a4870c955d48adf0dea7ba631b4f9d1d65a686bbd574bce778ff6f2321efaea58ac100c989499decd191a421d63090a27924f358dea93aa8  nginx.tar.gz" | sha512sum -c
+          tar xf nginx.tar.gz
+      - name: build nginx with nchan
+        run: |
+          ls -lh
+          cd nginx-*
+          auto/configure --add-module=$PWD/..
+          make -j$(nproc || echo 1)
