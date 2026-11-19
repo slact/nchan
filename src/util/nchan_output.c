@@ -290,6 +290,11 @@ static ngx_int_t nchan_output_filter_generic(ngx_http_request_t *r, nchan_msg_t 
   if(r->out == NULL) {
     if(ctx) {
       flush_all_the_reserved_things(ctx);
+      
+      //Fix crash when using X-Accel-Redirect with message forwarding
+      //See https://github.com/slact/nchan/pull/591
+      //There may be a better way to do this...
+      ngx_http_set_ctx(r->main, NULL, ngx_http_charset_filter_module);
     }
   }
   
