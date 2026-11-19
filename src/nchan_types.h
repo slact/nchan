@@ -437,6 +437,8 @@ struct nchan_loc_conf_s { //nchan_loc_conf_t
   nchan_benchmark_conf_t          benchmark;
   
   ngx_int_t                     (*request_handler)(ngx_http_request_t *r);
+  
+  ngx_int_t                     stub_status_format;  // 0=plain, 1=json, 2=html, 3=prometheus
 };// nchan_loc_conf_t;
 
 typedef struct nchan_llist_timed_s {

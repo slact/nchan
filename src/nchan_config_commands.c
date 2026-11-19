@@ -912,7 +912,7 @@ static ngx_command_t  nchan_commands[] = {
     NULL } ,
 
   { ngx_string("nchan_stub_status"),
-    NGX_HTTP_LOC_CONF|NGX_CONF_NOARGS,
+    NGX_HTTP_LOC_CONF|NGX_CONF_NOARGS|NGX_CONF_TAKE1,
     nchan_stub_status_directive,
     NGX_HTTP_LOC_CONF_OFFSET,
     0,
